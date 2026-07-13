@@ -31,7 +31,7 @@ class MailboxClient:
             self._seq = 1
         return self._seq
 
-    def submit(self, message_type, values, command_id=0, flags=None):
+    def submit(self, message_type, values, command_id=0, flags=None, expected_type=None):
         if len(self._queue) >= self._queue.maxlen:
             raise RuntimeError("mailbox command queue full")
         if flags is None:
@@ -44,12 +44,21 @@ class MailboxClient:
             "command_id": command_id & 0xFFFFFFFF,
             "sent_ms": None,
             "retries": 0,
+            "expected_type": expected_type,
         }
         self._queue.append(item)
         return item["seq"]
 
     def hello(self):
-        return self.submit(protocol_ids.MSG_HELLO_REQ, (self.boot_id, 1), 0)
+        return self.submit(
+            protocol_ids.MSG_HELLO_REQ,
+            (self.boot_id, 1),
+            0,
+            expected_type=protocol_ids.MSG_HELLO_RSP,
+        )
+
+    def request(self, message_type, values, expected_type):
+        return self.submit(message_type, values, 0, flags=0, expected_type=expected_type)
 
     def _select_tx(self, now_ms):
         if self._pending is None and self._queue:
@@ -86,12 +95,8 @@ class MailboxClient:
         message_type = decoded["type"]
         if message_type == protocol_ids.MSG_NOOP:
             return
-        if (
-            message_type == protocol_ids.MSG_HELLO_RSP
-            and self._pending
-            and self._pending["type"] == protocol_ids.MSG_HELLO_REQ
-        ):
-            self.events.append({"kind": "hello", "slot": decoded})
+        if self._pending and self._pending["expected_type"] == message_type:
+            self.events.append({"kind": "response", "request_seq": self._pending["seq"], "slot": decoded})
             self._pending = None
             return
         if message_type in (protocol_ids.MSG_ACK, protocol_ids.MSG_NACK):

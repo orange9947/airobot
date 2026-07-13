@@ -35,12 +35,25 @@ python3 tools/check_firmware_size.py build/stm32/firmware/stm32/desktop_robot.el
 
 The build produces `desktop_robot.elf`, `.hex`, `.bin`, and a linker map under `build/stm32/firmware/stm32/`.
 
+## ESP32-S3 deploy
+
+Flash the stable MicroPython v1.28.0 `ESP32_GENERIC_S3-SPIRAM_OCT` build, then deploy the application:
+
+```bash
+python3 -m pip install --user esptool mpremote
+python3 tools/deploy_esp32.py --port /dev/ttyACM0
+```
+
+See [ESP32 setup](docs/esp32/setup.md) for flashing, first boot, provider configuration, and hardware bring-up.
+The web console can be previewed without hardware by serving `web/` and opening `/?demo=1`.
+
 ## Documents
 
 - [System design](docs/superpowers/specs/2026-07-14-desktop-robot-design.md)
 - [Implementation plan](docs/superpowers/plans/2026-07-14-m0-m1-foundation-stm32-plan.md)
 - [Final wiring](docs/hardware/wiring-v1.md)
 - [ST-Link flashing](docs/hardware/stlink-flashing.md)
+- [ESP32-S3 setup](docs/esp32/setup.md)
 
 ## Safety
 

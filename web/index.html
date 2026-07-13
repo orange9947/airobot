@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#20262a">
+  <title>桌面机器人控制台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="identity">
+        <div class="identity-mark" aria-hidden="true"><span></span><span></span></div>
+        <div><strong>桌面机器人</strong><small id="device-address">本地设备</small></div>
+      </div>
+      <div class="topbar-actions">
+        <div class="link-state" id="link-state"><i></i><span>连接中</span></div>
+        <button class="icon-button" id="refresh-button" type="button" title="刷新状态" aria-label="刷新状态">
+          <img src="/assets/icons/refresh-cw.svg" alt="">
+        </button>
+        <button class="stop-command" id="global-stop" type="button">
+          <img src="/assets/icons/circle-stop.svg" alt=""><span>急停</span>
+        </button>
+      </div>
+    </header>
+
+    <aside class="sidebar" aria-label="主导航">
+      <nav>
+        <button class="nav-button active" data-view="dashboard" type="button">
+          <img src="/assets/icons/gauge.svg" alt=""><span>控制台</span>
+        </button>
+        <button class="nav-button" data-view="chat" type="button">
+          <img src="/assets/icons/message-circle.svg" alt=""><span>AI 对话</span>
+        </button>
+        <button class="nav-button" data-view="diagnostics" type="button">
+          <img src="/assets/icons/activity.svg" alt=""><span>设备诊断</span>
+        </button>
+        <button class="nav-button" data-view="settings" type="button">
+          <img src="/assets/icons/settings.svg" alt=""><span>设置</span>
+        </button>
+      </nav>
+      <button class="nav-button logout-button" id="logout-button" type="button">
+        <img src="/assets/icons/log-out.svg" alt=""><span>退出</span>
+      </button>
+    </aside>
+
+    <main class="workspace">
+      <section class="view active" id="view-dashboard" aria-labelledby="dashboard-title">
+        <div class="view-heading">
+          <div><p class="eyebrow">ROBOT / LIVE</p><h1 id="dashboard-title">设备控制台</h1></div>
+          <div class="mode-control" aria-label="运行模式">
+            <button data-mode="idle" type="button">待机</button>
+            <button data-mode="manual" type="button">手动</button>
+            <button data-mode="ai" type="button">AI</button>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel device-panel">
+            <div class="panel-title"><h2>当前状态</h2><span class="mono" id="state-code">BOOT</span></div>
+            <div class="oled-frame" id="oled-face" data-expression="neutral">
+              <div class="oled-scan"></div>
+              <div class="eye eye-left"></div><div class="eye eye-right"></div><div class="mouth"></div>
+              <span class="oled-label" id="oled-label">BOOT</span>
+            </div>
+            <dl class="status-list">
+              <div><dt>ESP ↔ STM</dt><dd id="spi-status">等待握手</dd></div>
+              <div><dt>Wi-Fi</dt><dd id="wifi-status">检查中</dd></div>
+              <div><dt>模型</dt><dd id="model-status">未配置</dd></div>
+              <div><dt>活动任务</dt><dd id="active-task">无</dd></div>
+              <div><dt>故障码</dt><dd id="fault-code">0</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel motion-panel">
+            <div class="panel-title"><h2>手动运动</h2><span id="motion-lock">待机模式已锁定</span></div>
+            <div class="motion-layout">
+              <div class="dpad" aria-label="方向控制">
+                <button data-direction="forward" type="button" title="前进" aria-label="前进"><img src="/assets/icons/arrow-up.svg" alt=""></button>
+                <button data-direction="left" type="button" title="左转" aria-label="左转"><img src="/assets/icons/arrow-left.svg" alt=""></button>
+                <button class="dpad-stop" id="motion-stop" type="button" title="停止" aria-label="停止"><img src="/assets/icons/square.svg" alt=""></button>
+                <button data-direction="right" type="button" title="右转" aria-label="右转"><img src="/assets/icons/arrow-right.svg" alt=""></button>
+                <button data-direction="backward" type="button" title="后退" aria-label="后退"><img src="/assets/icons/arrow-down.svg" alt=""></button>
+              </div>
+              <div class="motion-settings">
+                <label><span>速度</span><output id="speed-output">40%</output><input id="speed-input" type="range" min="10" max="100" value="40" step="5"></label>
+                <label><span>单次时长</span><output id="duration-output">500 ms</output><input id="duration-input" type="range" min="100" max="2000" value="500" step="100"></label>
+                <div class="motion-readout"><span>开环控制</span><strong id="step-estimate">80 步</strong></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel event-panel">
+            <div class="panel-title"><h2>最近事件</h2><button class="text-button" id="clear-events" type="button">清空</button></div>
+            <div class="event-table" id="event-table" aria-live="polite"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-chat" aria-labelledby="chat-title">
+        <div class="view-heading">
+          <div><p class="eyebrow">MODEL / TOOL LOOP</p><h1 id="chat-title">AI 对话</h1></div>
+          <div class="provider-readout"><span id="chat-provider">DeepSeek</span><small id="chat-model">deepseek-chat</small></div>
+        </div>
+        <section class="chat-workspace">
+          <div class="chat-stream" id="chat-stream" aria-live="polite"></div>
+          <form class="composer" id="chat-form">
+            <textarea id="chat-input" maxlength="2000" rows="2" placeholder="输入消息" aria-label="消息"></textarea>
+            <button class="send-button" type="submit" title="发送" aria-label="发送"><img src="/assets/icons/send.svg" alt=""></button>
+          </form>
+        </section>
+      </section>
+
+      <section class="view" id="view-diagnostics" aria-labelledby="diagnostics-title">
+        <div class="view-heading"><div><p class="eyebrow">SYSTEM / HEALTH</p><h1 id="diagnostics-title">设备诊断</h1></div></div>
+        <div class="metrics-grid">
+          <section class="metric"><img src="/assets/icons/cpu.svg" alt=""><span>STM32 状态</span><strong id="metric-state">BOOT</strong></section>
+          <section class="metric"><img src="/assets/icons/radio.svg" alt=""><span>SPI 接收错误</span><strong id="metric-rx">0</strong></section>
+          <section class="metric"><img src="/assets/icons/database.svg" alt=""><span>W25Q 容量</span><strong id="metric-flash">未检测</strong></section>
+          <section class="metric"><img src="/assets/icons/wifi.svg" alt=""><span>网络地址</span><strong id="metric-ip">0.0.0.0</strong></section>
+        </div>
+        <section class="panel diagnostic-log-panel">
+          <div class="panel-title"><h2>事件日志</h2><span class="mono" id="event-count">0 EVENTS</span></div>
+          <div class="diagnostic-log" id="diagnostic-log"></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-settings" aria-labelledby="settings-title">
+        <div class="view-heading"><div><p class="eyebrow">DEVICE / CONFIG</p><h1 id="settings-title">设置</h1></div></div>
+        <form id="settings-form" class="settings-layout">
+          <section class="settings-section">
+            <div><h2>模型服务</h2><p id="key-state">密钥状态</p></div>
+            <div class="settings-fields">
+              <label><span>当前服务商</span><select id="provider-select"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option></select></label>
+              <label><span>模型</span><input id="provider-model" autocomplete="off"></label>
+              <label class="wide-field"><span>Base URL</span><input id="provider-url" type="url" autocomplete="off"></label>
+              <label class="wide-field secret-field"><span>API Key</span><input id="provider-key" type="password" autocomplete="new-password" placeholder="保持现有密钥"><button id="save-key" type="button"><img src="/assets/icons/key-round.svg" alt="">更新密钥</button></label>
+            </div>
+          </section>
+          <section class="settings-section">
+            <div><h2>网络</h2><p>修改后重启生效</p></div>
+            <div class="settings-fields">
+              <label><span>Wi-Fi 名称</span><input id="wifi-ssid" autocomplete="off"></label>
+              <label><span>Wi-Fi 密码</span><input id="wifi-password" type="password" autocomplete="new-password" placeholder="保持现有密码"></label>
+            </div>
+          </section>
+          <section class="settings-section">
+            <div><h2>运动限制</h2><p>STM32 仍执行硬上限</p></div>
+            <div class="settings-fields three-fields">
+              <label><span>软速度上限</span><input id="motion-rate" type="number" min="1" max="800"></label>
+              <label><span>加速度</span><input id="motion-accel" type="number" min="1" max="1200"></label>
+              <label><span>保持时间</span><input id="motion-hold" type="number" min="0" max="2000"></label>
+            </div>
+          </section>
+          <div class="settings-actions"><button class="primary-command" type="submit"><img src="/assets/icons/save.svg" alt="">保存设置</button></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div class="auth-layer" id="auth-layer">
+    <form class="auth-dialog" id="auth-form">
+      <div class="auth-mark" aria-hidden="true"><span></span><span></span></div>
+      <p class="eyebrow" id="auth-eyebrow">LOCAL DEVICE</p>
+      <h2 id="auth-title">登录机器人</h2>
+      <label><span>管理密码</span><input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label>
+      <button class="primary-command" type="submit"><img src="/assets/icons/power.svg" alt=""><span id="auth-submit-label">进入控制台</span></button>
+      <p class="form-error" id="auth-error"></p>
+    </form>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
