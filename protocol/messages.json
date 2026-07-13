@@ -1,0 +1,37 @@
+{
+  "protocol": {
+    "version": 1,
+    "magic": [165, 90],
+    "payload_size": 256,
+    "slot_size": 268
+  },
+  "enums": {
+    "SlotFlags": {"ACK_REQUEST": 1, "RESPONSE": 2, "EVENT": 4, "HEARTBEAT": 8},
+    "RobotState": {"BOOT": 0, "SELF_TEST": 1, "IDLE": 2, "MANUAL": 3, "AI": 4, "ESTOP": 5, "FAULT": 6},
+    "Mode": {"IDLE": 2, "MANUAL": 3, "AI": 4},
+    "Expression": {"NEUTRAL": 0, "HAPPY": 1, "SAD": 2, "THINKING": 3, "SURPRISED": 4, "SLEEPY": 5, "ESTOP": 6, "FAULT": 7},
+    "ErrorCode": {"OK": 0, "BAD_SLOT": 1, "BAD_VERSION": 2, "BAD_MESSAGE": 3, "BAD_PAYLOAD": 4, "BAD_STATE": 5, "OUT_OF_RANGE": 6, "QUEUE_FULL": 7, "LINK_LOST": 8, "INTERNAL": 9},
+    "AbortReason": {"STOP": 1, "ESTOP": 2, "TIMEOUT": 3, "MODE_CHANGE": 4, "LINK_LOST": 5, "FAULT": 6}
+  },
+  "messages": [
+    {"name": "NOOP", "id": 0, "fields": [], "sample": {}},
+    {"name": "HELLO_REQ", "id": 257, "fields": [{"name": "esp_boot_id", "type": "u32"}, {"name": "capabilities", "type": "u32"}], "sample": {"esp_boot_id": 305419896, "capabilities": 1}},
+    {"name": "HELLO_RSP", "id": 258, "fields": [{"name": "stm_boot_id", "type": "u32"}, {"name": "capabilities", "type": "u32"}, {"name": "fw_major", "type": "u8"}, {"name": "fw_minor", "type": "u8"}, {"name": "fw_patch", "type": "u8"}, {"name": "state", "type": "u8"}], "sample": {"stm_boot_id": 2271560481, "capabilities": 31, "fw_major": 0, "fw_minor": 1, "fw_patch": 0, "state": 2}},
+    {"name": "HEARTBEAT", "id": 259, "fields": [{"name": "esp_uptime_ms", "type": "u32"}], "sample": {"esp_uptime_ms": 123456}},
+    {"name": "GET_STATE", "id": 260, "fields": [], "sample": {}},
+    {"name": "STATE_SNAPSHOT", "id": 261, "fields": [{"name": "stm_boot_id", "type": "u32"}, {"name": "uptime_ms", "type": "u32"}, {"name": "state", "type": "u8"}, {"name": "selected_mode", "type": "u8"}, {"name": "degraded_flags", "type": "u16"}, {"name": "fault_code", "type": "u16"}, {"name": "active_command_id", "type": "u32"}, {"name": "rx_errors", "type": "u16"}, {"name": "queue_depth", "type": "u8"}, {"name": "reserved", "type": "u8"}], "sample": {"stm_boot_id": 2271560481, "uptime_ms": 654321, "state": 3, "selected_mode": 3, "degraded_flags": 0, "fault_code": 0, "active_command_id": 42, "rx_errors": 2, "queue_depth": 1, "reserved": 0}},
+    {"name": "SET_MODE", "id": 513, "fields": [{"name": "command_id", "type": "u32"}, {"name": "mode", "type": "u8"}], "sample": {"command_id": 41, "mode": 3}},
+    {"name": "MOVE_WHEELS", "id": 514, "fields": [{"name": "command_id", "type": "u32"}, {"name": "left_steps", "type": "i32"}, {"name": "right_steps", "type": "i32"}, {"name": "max_rate_sps", "type": "u16"}, {"name": "accel_sps2", "type": "u16"}, {"name": "timeout_ms", "type": "u16"}], "sample": {"command_id": 42, "left_steps": -512, "right_steps": 512, "max_rate_sps": 400, "accel_sps2": 600, "timeout_ms": 2000}},
+    {"name": "STOP", "id": 515, "fields": [{"name": "command_id", "type": "u32"}, {"name": "reason", "type": "u8"}], "sample": {"command_id": 43, "reason": 1}},
+    {"name": "SET_EXPRESSION", "id": 516, "fields": [{"name": "command_id", "type": "u32"}, {"name": "expression", "type": "u8"}], "sample": {"command_id": 44, "expression": 1}},
+    {"name": "SET_RUNTIME_CONFIG", "id": 517, "fields": [{"name": "command_id", "type": "u32"}, {"name": "soft_rate_sps", "type": "u16"}, {"name": "accel_sps2", "type": "u16"}, {"name": "hold_ms", "type": "u16"}, {"name": "flags", "type": "u16"}], "sample": {"command_id": 45, "soft_rate_sps": 400, "accel_sps2": 600, "hold_ms": 200, "flags": 0}},
+    {"name": "ACK", "id": 769, "fields": [{"name": "request_seq", "type": "u16"}, {"name": "command_id", "type": "u32"}, {"name": "status", "type": "u8"}], "sample": {"request_seq": 10, "command_id": 42, "status": 0}},
+    {"name": "NACK", "id": 770, "fields": [{"name": "request_seq", "type": "u16"}, {"name": "command_id", "type": "u32"}, {"name": "error", "type": "u16"}], "sample": {"request_seq": 11, "command_id": 42, "error": 5}},
+    {"name": "MOTION_STARTED", "id": 771, "fields": [{"name": "command_id", "type": "u32"}], "sample": {"command_id": 42}},
+    {"name": "MOTION_DONE", "id": 772, "fields": [{"name": "command_id", "type": "u32"}, {"name": "left_steps", "type": "i32"}, {"name": "right_steps", "type": "i32"}, {"name": "result", "type": "u8"}], "sample": {"command_id": 42, "left_steps": -512, "right_steps": 512, "result": 0}},
+    {"name": "MOTION_ABORTED", "id": 773, "fields": [{"name": "command_id", "type": "u32"}, {"name": "reason", "type": "u16"}], "sample": {"command_id": 42, "reason": 2}},
+    {"name": "MODE_CHANGED", "id": 774, "fields": [{"name": "mode", "type": "u8"}, {"name": "source", "type": "u8"}], "sample": {"mode": 3, "source": 1}},
+    {"name": "FAULT_EVENT", "id": 775, "fields": [{"name": "fault_code", "type": "u16"}, {"name": "detail", "type": "u16"}], "sample": {"fault_code": 8, "detail": 750}},
+    {"name": "FLASH_INFO", "id": 1025, "fields": [{"name": "jedec_id", "type": "u32"}, {"name": "capacity_bytes", "type": "u32"}, {"name": "status", "type": "u8"}], "sample": {"jedec_id": 15679504, "capacity_bytes": 1048576, "status": 0}}
+  ]
+}

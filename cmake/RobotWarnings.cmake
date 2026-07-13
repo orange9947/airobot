@@ -1,0 +1,7 @@
+function(robot_apply_warnings target)
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  if(ROBOT_ENABLE_SANITIZERS AND NOT CMAKE_CROSSCOMPILING)
+    target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+  endif()
+endfunction()

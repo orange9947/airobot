@@ -12,9 +12,9 @@
 
 1. 无外部 Python 测试框架依赖的主机测试和 GitHub Actions。
 2. 单一协议清单、确定性代码生成、C/Python 编解码和黄金帧契约。
-3. 可通过 TCP 或伪终端运行的 STM32 设备模拟器和协议诊断工具。
+3. 可通过 TCP 固定槽运行的 STM32 设备模拟器和协议诊断工具。
 4. 可由 `arm-none-eabi-gcc` 构建、由 ST-Link 烧录的 STM32F103C8T6 固件。
-5. STM32 全局状态、安全监督、UART 心跳、命令去重和状态事件。
+5. STM32 全局状态、安全监督、SPI 心跳、命令去重和状态事件。
 6. 双 28BYJ-48 开环运动、EC11、SSD1306、W25Q 探测和基础表情。
 7. 失联、STOP、长按、重复命令和外设降级的自动测试与台架验收记录。
 
@@ -137,7 +137,7 @@ git diff --exit-code -- protocol/generated protocol/golden
 
 提交：`feat(protocol): add schema and deterministic code generation`
 
-### Task 3：实现 MicroPython 兼容的 Python 编解码和流解析
+### Task 3：实现 MicroPython 兼容的 Python 固定槽编解码
 
 文件：
 
@@ -145,22 +145,22 @@ git diff --exit-code -- protocol/generated protocol/golden
 - 新建 `firmware/esp32/transport/__init__.py`
 - 新建 `firmware/esp32/transport/crc16.py`
 - 新建 `firmware/esp32/transport/frame_codec.py`
-- 新建 `firmware/esp32/transport/stream_parser.py`
+- 新建 `firmware/esp32/transport/spi_mailbox.py`
 - 新建 `tests/test_protocol_python.py`
 
 测试先行：
 
 1. CRC16-CCITT 使用标准检查值和黄金帧。
 2. 所有黄金帧解码后字段与清单输入一致，再编码必须得到原字节。
-3. 解析器处理逐字节输入、任意分片、连续帧、前导噪声、载荷内 SOF 和截断帧。
-4. CRC 错误、LEN 大于 256、未知版本和缓冲区溢出必须产生计数，不抛出导致任务退出的异常。
-5. 恢复测试在错误帧后追加有效帧，必须成功输出有效帧。
+3. 编解码器只接受恰好 268 字节的槽，并验证 MAGIC、版本、LEN、零填充和 CRC。
+4. CRC 错误、LEN 大于 256、未知版本和非零填充必须产生计数，不导致 SPI 轮询任务退出。
+5. 邮箱跟踪命令序号、10 ms 轮询、100 ms ACK 目标和最多 3 次相同 command_id 重发。
 
 实现约束：
 
 - 运行时代码只使用 MicroPython/CPython 共有的 `struct`、`binascii` 和基础容器。
 - 不使用 dataclass、CPython 专用缓冲协议或第三方包。
-- 解析器缓冲上限为 512 字节；解析完成或错误恢复后及时释放已消费前缀。
+- 每次只保留一个 268 字节 RX 槽和有限待确认命令表，不累积原始事务流。
 - `Frame` 对象只保存已验证字段；原始未验证数据不进入业务层。
 
 验证：
@@ -172,7 +172,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 提交：`feat(protocol): add MicroPython-compatible frame codec`
 
-### Task 4：实现无动态内存的 C 编解码和流解析
+### Task 4：实现无动态内存的 C 固定槽编解码
 
 文件：
 
@@ -180,24 +180,24 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 - 新建 `firmware/stm32/App/Protocol/robot_crc16.c`
 - 新建 `firmware/stm32/App/Protocol/robot_protocol.h`
 - 新建 `firmware/stm32/App/Protocol/robot_protocol.c`
-- 新建 `firmware/stm32/App/Protocol/robot_stream_parser.h`
-- 新建 `firmware/stm32/App/Protocol/robot_stream_parser.c`
+- 新建 `firmware/stm32/App/Protocol/robot_spi_slot.h`
+- 新建 `firmware/stm32/App/Protocol/robot_spi_slot.c`
 - 新建 `tests/unit/test_protocol_c.c`
-- 新建 `tests/unit/test_stream_parser_c.c`
+- 新建 `tests/unit/test_spi_slot_c.c`
 - 修改 `tests/CMakeLists.txt`
 
 测试先行：
 
 1. C CRC 和 Python 黄金值一致。
 2. C 解码/编码全部黄金帧字节一致。
-3. 流解析覆盖与 Python 相同的分片、噪声、CRC、长度和恢复用例。
+3. 固定槽解析覆盖错误 MAGIC、CRC、长度、非零填充和下一事务恢复用例。
 4. 输出缓冲不足、空指针和非法枚举返回稳定错误码，不越界写入。
 5. 使用 AddressSanitizer/UndefinedBehaviorSanitizer 运行主机测试。
 
 实现约束：
 
 - 编解码 API 由调用方提供输入输出缓冲和容量。
-- 流解析器包含固定 512 字节缓冲，不调用 `malloc`、`calloc` 或 `realloc`。
+- 槽编解码使用调用方提供的 268 字节缓冲，不调用 `malloc`、`calloc` 或 `realloc`。
 - 整数字段通过显式 `read_u16_le` 等函数处理，不强转未对齐指针。
 - HAL 无关代码在主机 GCC 下以 `-Werror` 编译。
 
@@ -226,7 +226,7 @@ ctest --test-dir build/host --output-on-failure
 
 模拟器行为：
 
-- 支持 `--tcp host:port`，Linux 下额外支持 `--pty` 并打印从设备路径。
+- 支持 `--tcp host:port`，每次收发恰好一个 268 字节槽，模拟 SPI 全双工事务。
 - 实现 boot_id、HELLO、心跳、IDLE/MANUAL/AI/ESTOP、ACK/NACK、MOVE 和 STOP。
 - 运动只模拟时间和事件，不模拟物理惯性。
 - 提供丢帧、延迟 ACK、重复事件、错误 CRC 和重启注入开关。
@@ -283,7 +283,7 @@ M0 完成标准：
    - `Drivers/STM32F1xx_HAL_Driver`
 3. CMake 使用 CubeF1 自带 CMSIS Core、CMSIS Device、startup 和 HAL 源码。
 4. 定义 `STM32F103xB`、`USE_HAL_DRIVER`，链接目标为 64 KiB Flash、20 KiB RAM。
-5. 启用 RCC、GPIO、CORTEX、UART、I2C、SPI、FLASH 和 PWR HAL 模块。
+5. 启用 RCC、GPIO、CORTEX、SPI、DMA、FLASH 和 PWR HAL 模块；OLED 使用软件 I2C。
 6. 添加固件大小报告；Flash 或 RAM 超出链接脚本立即失败。
 
 验证：
@@ -319,7 +319,7 @@ arm-none-eabi-size build/stm32/desktop_robot.elf
 
 1. 立即把 8 个电机相位输出配置为低电平。
 2. 尝试 HSE 8 MHz + PLL 72 MHz；HSE 失败时回退 HSI + PLL 64 MHz，并记录降级状态。
-3. 初始化 SysTick、TIM2、USART1、I2C1、SPI1 和 PC13 状态灯。
+3. 初始化 SysTick、TIM2、SPI1 从机 DMA、SPI2 主机、OLED 软件 I2C GPIO 和 PC13 状态灯。
 4. 不启用 JTAG，只保留 SWD，确保 PA13/PA14 可调试。
 5. 外设初始化失败保持线圈关闭并进入可诊断状态。
 
@@ -382,12 +382,12 @@ ctest --test-dir build/host --output-on-failure -R 'state|event|safety'
 
 提交：`feat(stm32): add authoritative state and safety supervisor`
 
-### Task 9：接入 UART、会话、命令路由和状态事件
+### Task 9：接入 SPI 邮箱、会话、命令路由和状态事件
 
 文件：
 
-- 新建 `firmware/stm32/Drivers/Uart/uart_transport.h`
-- 新建 `firmware/stm32/Drivers/Uart/uart_transport.c`
+- 新建 `firmware/stm32/Drivers/Spi/spi_mailbox.h`
+- 新建 `firmware/stm32/Drivers/Spi/spi_mailbox.c`
 - 新建 `firmware/stm32/App/Protocol/protocol_router.h`
 - 新建 `firmware/stm32/App/Protocol/protocol_router.c`
 - 新建 `firmware/stm32/App/Protocol/command_dedup.h`
@@ -398,8 +398,8 @@ ctest --test-dir build/host --output-on-failure -R 'state|event|safety'
 
 实现：
 
-- USART1 RX 中断写入固定环形缓冲，主循环喂给流解析器。
-- TX 使用固定队列和中断发送，STOP/NACK/FAULT 具有高优先级槽位。
+- SPI1 使用硬件 NSS 从机和固定 268 字节 RX/TX DMA 槽；每次事务结束后主循环处理 RX，并准备下一次 TX。
+- TX 邮箱队列中 STOP/NACK/FAULT 具有高优先级槽位；无事件时填充 NOOP。
 - HELLO 响应包含 STM boot_id、协议版本、固件版本和能力位。
 - 去重缓存保存最近 16 个 `boot_id + seq + command_id` 结果。
 - 命令路由先做通用校验，再调用状态、运动、UI 或存储接口。
@@ -421,7 +421,7 @@ ctest --test-dir build/host --output-on-failure -R 'router|dedup|session'
 cmake --build build/stm32
 ```
 
-提交：`feat(stm32): add UART session and command routing`
+提交：`feat(stm32): add SPI mailbox session and command routing`
 
 ### Task 10：实现双轮半步驱动和有限运动任务
 
@@ -462,7 +462,7 @@ cmake --build build/stm32
 1. 不接电机时用万用表或逻辑分析仪验证 8 路相位。
 2. 接单轮并悬空，验证前后方向和停止释放。
 3. 接双轮并悬空，验证前进、后退、原地左右转。
-4. 动作中发送 STOP 和拔掉 UART，确认停车时间。
+4. 动作中发送 STOP 和停止 SPI 轮询，确认停车时间。
 
 验证：
 
@@ -609,18 +609,18 @@ cmake --build build/stm32
 
 主循环顺序：
 
-1. 消费 UART RX 并解析有限数量帧。
+1. 消费已完成的 SPI RX 槽并解析有限数量消息。
 2. tick 安全监督和输入。
 3. 路由已验证命令。
 4. tick 运动、UI 和存储服务。
 5. 发送高优先级事件和有限数量普通事件。
-6. 无工作时执行 `__WFI()`，由 SysTick/UART/定时器唤醒。
+6. 无工作时执行 `__WFI()`，由 SysTick/SPI DMA/定时器唤醒。
 
 集成测试：
 
 - BOOT/自检/HELLO/IDLE/MANUAL/MOVE/DONE 完整路径。
 - AI 模式 MOVE 与错误模式 NACK。
-- MOVE 执行中 STOP、UART 超时和本体长按。
+- MOVE 执行中 STOP、SPI 心跳超时和本体长按。
 - 重复帧、错误 CRC、TX 队列满和 MCU 新 boot_id。
 - OLED/W25Q 降级、EC11 FAULT。
 - 毫秒计数回绕附近的心跳和动作超时。
@@ -655,7 +655,8 @@ python3 tools/check_firmware_size.py build/stm32/desktop_robot.elf
 
 接线文档必须包含：
 
-- ESP GPIO17/18 与 STM PA10/PA9 交叉连接。
+- ESP GPIO10/11/12/13 与 STM PA4/PA7/PA5/PA6 的 SPI 连接。
+- W25Q PB12/PB13/PB14/PB15、OLED PB6/PB7、EC11 PA0/PA1/PA2 和双电机最终引脚表。
 - 左右 ULN2003、OLED、EC11、W25Q 和 ST-Link 引脚表。
 - 5V/3A 电源分支、共地、去耦和禁止 5V 进入 GPIO 的警告。
 - 电机悬空测试顺序和软件急停的限制。
@@ -666,7 +667,7 @@ python3 tools/check_firmware_size.py build/stm32/desktop_robot.elf
 2. OLED、EC11、W25Q 单独验证。
 3. 单轮低速验证相序和方向。
 4. 双轮悬空验证差速动作和加减速。
-5. 动作中 STOP、本体长按、拔 UART、复位 ESP 侧链路。
+5. 动作中 STOP、本体长按、停止 SPI 轮询、复位 ESP 侧链路。
 6. 重复命令和错误 CRC 注入。
 7. 双电机 10 分钟循环，记录 5V 波动、复位、ULN2003、升压模块和电池温升。
 8. 运行 2 小时心跳、模式切换、OLED 动画和动作循环，记录错误计数和恢复结果。
@@ -707,7 +708,7 @@ Task 1 构建基线
   -> Task 6 交叉编译
   -> Task 7 板级上电
   -> Task 8 状态与安全
-  -> Task 9 UART 路由
+  -> Task 9 SPI 邮箱路由
   -> Task 10 电机
   -> Task 11 EC11
   -> Task 12 OLED
@@ -724,8 +725,8 @@ M0/M1 通过后，M2 直接复用：
 
 - `protocol/generated/protocol_ids.py`
 - `firmware/esp32/transport/frame_codec.py`
-- `firmware/esp32/transport/stream_parser.py`
+- `firmware/esp32/transport/spi_mailbox.py`
 - `tools/stm_simulator.py`
 - STM32 真实协议端点
 
-网页和 AI 开发先连接 STM 模拟器，再连接真实 UART。M2/M3 不得修改 M1 的硬上限、ESTOP 解除条件或状态权威关系；需要协议扩展时只能增加向后兼容消息并更新黄金契约。
+网页和 AI 开发先连接 STM 模拟器，再连接真实 SPI。M2/M3 不得修改 M1 的硬上限、ESTOP 解除条件或状态权威关系；需要协议扩展时只能增加向后兼容消息并更新黄金契约。

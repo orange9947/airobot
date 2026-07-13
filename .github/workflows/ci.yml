@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check generated protocol
+        run: python3 protocol/generate.py --check
+      - name: Python tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Configure C tests
+        run: cmake -S . -B build/host -DROBOT_BUILD_HOST_TESTS=ON -DROBOT_ENABLE_SANITIZERS=ON
+      - name: Build C tests
+        run: cmake --build build/host
+      - name: Run C tests
+        run: ctest --test-dir build/host --output-on-failure
+      - name: Check whitespace
+        run: git diff --check
