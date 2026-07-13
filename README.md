@@ -18,10 +18,29 @@ cmake --build build/host
 ctest --test-dir build/host --output-on-failure
 ```
 
+## STM32 build
+
+Initialize the pinned STM32CubeF1 dependency, then configure with an ARM GCC toolchain:
+
+```bash
+./tools/bootstrap_stm32cube.sh
+export AIROBOT_ARM_GCC_ROOT="$HOME/.cache/airobot-toolchain/root"
+cmake -S . -B build/stm32 \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-gcc.cmake \
+  -DROBOT_BUILD_HOST_TESTS=OFF \
+  -DROBOT_BUILD_STM32=ON
+cmake --build build/stm32
+python3 tools/check_firmware_size.py build/stm32/firmware/stm32/desktop_robot.elf
+```
+
+The build produces `desktop_robot.elf`, `.hex`, `.bin`, and a linker map under `build/stm32/firmware/stm32/`.
+
 ## Documents
 
 - [System design](docs/superpowers/specs/2026-07-14-desktop-robot-design.md)
 - [Implementation plan](docs/superpowers/plans/2026-07-14-m0-m1-foundation-stm32-plan.md)
+- [Final wiring](docs/hardware/wiring-v1.md)
+- [ST-Link flashing](docs/hardware/stlink-flashing.md)
 
 ## Safety
 

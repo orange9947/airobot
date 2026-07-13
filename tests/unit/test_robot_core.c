@@ -1,0 +1,104 @@
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "ec11.h"
+#include "motion_service.h"
+#include "robot_state.h"
+#include "safety_supervisor.h"
+#include "test_harness.h"
+
+typedef struct {
+    uint8_t left;
+    uint8_t right;
+    uint32_t calls;
+} output_capture_t;
+
+static void capture_output(uint8_t left, uint8_t right, void *context) {
+    output_capture_t *capture = context;
+    capture->left = left;
+    capture->right = right;
+    capture->calls++;
+}
+
+static int test_state_and_safety(void) {
+    robot_state_t state;
+    safety_supervisor_t safety;
+
+    robot_state_init(&state);
+    TEST_ASSERT_EQ(ROBOT_STATE_SELF_TEST, state.value);
+    TEST_ASSERT(robot_state_finish_self_test(&state, true));
+    TEST_ASSERT(robot_state_request_mode(&state, ROBOT_STATE_MANUAL));
+    safety_supervisor_init(&safety);
+    safety_supervisor_session_started(&safety, 100u);
+    TEST_ASSERT(!safety_supervisor_tick(&safety, &state, 850u));
+    TEST_ASSERT(safety_supervisor_tick(&safety, &state, 851u));
+    TEST_ASSERT_EQ(ROBOT_STATE_ESTOP, state.value);
+    TEST_ASSERT(!robot_state_clear_estop(&state, false, true, true));
+    TEST_ASSERT(robot_state_clear_estop(&state, true, true, true));
+    TEST_ASSERT_EQ(ROBOT_STATE_IDLE, state.value);
+    return 0;
+}
+
+static int test_motion(void) {
+    motion_service_t motion;
+    output_capture_t output = {0};
+    uint32_t now;
+
+    TEST_ASSERT_EQ(0x01u, motion_halfstep_pattern(0));
+    TEST_ASSERT_EQ(0x09u, motion_halfstep_pattern(7));
+    motion_service_init(&motion, capture_output, &output);
+    TEST_ASSERT(motion_service_start(&motion, 42u, 20, -10, 400u, 600u, 1000u, 0u));
+    for (now = 0u; now < 1000u && motion.active; ++now) {
+        motion_service_tick_1ms(&motion, now);
+    }
+    TEST_ASSERT_EQ(MOTION_RESULT_DONE, motion.result);
+    TEST_ASSERT_EQ(20u, motion.left_done);
+    TEST_ASSERT_EQ(10u, motion.right_done);
+    TEST_ASSERT(output.calls > 0u);
+    TEST_ASSERT_EQ(0u, output.left);
+    TEST_ASSERT_EQ(0u, output.right);
+
+    TEST_ASSERT(!motion_service_start(&motion, 1u, 1, 1, 801u, 600u, 100u, 0u));
+    TEST_ASSERT(motion_service_start(&motion, 1u, 1000, 1000, 100u, 100u, 50u, 0u));
+    motion_service_tick_1ms(&motion, 50u);
+    TEST_ASSERT_EQ(MOTION_RESULT_TIMEOUT, motion.result);
+    return 0;
+}
+
+static int test_encoder(void) {
+    ec11_t encoder;
+    ec11_event_t event = EC11_EVENT_NONE;
+    bool long_seen = false;
+    uint32_t index;
+    static const uint8_t clockwise[] = {3u, 1u, 0u, 2u, 3u};
+
+    ec11_init(&encoder, true, true, true);
+    for (index = 1u; index < sizeof(clockwise); ++index) {
+        uint8_t ab = clockwise[index];
+        event = ec11_sample_1ms(&encoder, (ab & 2u) != 0u, (ab & 1u) != 0u, true);
+    }
+    TEST_ASSERT(event == EC11_EVENT_CLOCKWISE || event == EC11_EVENT_COUNTERCLOCKWISE);
+
+    for (index = 0u; index < 25u; ++index) {
+        event = ec11_sample_1ms(&encoder, true, true, false);
+    }
+    TEST_ASSERT_EQ(EC11_EVENT_NONE, event);
+    for (index = 0u; index < 1500u; ++index) {
+        event = ec11_sample_1ms(&encoder, true, true, false);
+        if (event == EC11_EVENT_LONG_PRESS) {
+            TEST_ASSERT(!long_seen);
+            long_seen = true;
+        }
+    }
+    TEST_ASSERT(long_seen);
+    event = ec11_sample_1ms(&encoder, true, true, false);
+    TEST_ASSERT_EQ(EC11_EVENT_NONE, event);
+    return 0;
+}
+
+int main(void) {
+    TEST_ASSERT_EQ(0, test_state_and_safety());
+    TEST_ASSERT_EQ(0, test_motion());
+    TEST_ASSERT_EQ(0, test_encoder());
+    return 0;
+}
