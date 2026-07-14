@@ -182,13 +182,13 @@
   </div>
 
   <div class="auth-layer" id="auth-layer">
-    <form class="auth-dialog" id="auth-form">
+    <form class="auth-dialog" id="auth-form" aria-busy="true">
       <div class="auth-mark" aria-hidden="true"><span></span><span></span></div>
       <p class="eyebrow" id="auth-eyebrow">LOCAL DEVICE</p>
       <h2 id="auth-title">登录机器人</h2>
-      <label><span>管理密码</span><input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label>
-      <p class="auth-status" id="auth-status" aria-live="polite"></p>
-      <button class="primary-command" type="submit"><img id="auth-submit-icon" src="/assets/icons/power.svg" alt=""><span id="auth-submit-label">进入控制台</span></button>
+      <label><span>管理密码</span><input id="auth-password" type="password" minlength="8" required autocomplete="current-password" disabled></label>
+      <p class="auth-status" id="auth-status" aria-live="polite">正在连接机器人...</p>
+      <button class="primary-command" type="submit" disabled><img id="auth-submit-icon" src="/assets/icons/refresh-cw.svg" class="spinning" alt=""><span id="auth-submit-label">正在连接</span></button>
       <p class="form-error" id="auth-error"></p>
     </form>
   </div>

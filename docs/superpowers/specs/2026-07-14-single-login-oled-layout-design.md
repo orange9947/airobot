@@ -17,7 +17,9 @@ No authentication policy, password storage, robot control protocol, expression s
 - `config`: the redacted public configuration;
 - `status`: the current robot and network status.
 
-The browser will render `config` and `status` from this response, open the WebSocket, and hide the login layer. It will not immediately issue concurrent authenticated config and status requests. This removes the mobile browser cookie-commit race that currently causes a protected request to return 401 and reopen the login layer.
+The static login form starts in a busy state with its password field and submit button disabled. Only after `app.js` has bound the submit handler and completed the public bootstrap request may `showAuth()` enable the controls. This prevents a user on a slower ESP32 connection from submitting the native HTML form before JavaScript can call `preventDefault()`, which otherwise reloads the page and discards the first password entry.
+
+After successful authentication, the browser renders `config` and `status` from the login response, opens the WebSocket, and hides the login layer. It does not immediately issue concurrent authenticated config and status requests, keeping the first authenticated transition atomic.
 
 Retry after a later load failure remains available. Invalid passwords, authentication-busy responses, timeouts, and expired sessions keep their existing distinct messages. The JSON payload must never include the Wi-Fi password, API keys, password record, or session token; the session token remains confined to the existing HttpOnly `Set-Cookie` header.
 
@@ -48,6 +50,7 @@ STM32 state/expression update
 
 - Backend login tests assert the response contains redacted `config` and `status` and no secrets.
 - Browser tests assert one password submission opens the console without navigation or a second login request.
+- A delayed-script browser test asserts the static form is disabled before JavaScript binds and cannot navigate natively.
 - Existing wrong-password, timeout, session-expiry, and load-retry behavior remains covered.
 - Host C tests cover right-aligned label coordinates and verify the bottom expression region is not used by state labels.
 - The full Python, C, browser, ESP32 bundle, and STM32 cross-build suites run before deployment.
