@@ -30,13 +30,28 @@ static int test_state_and_safety(void) {
     TEST_ASSERT(robot_state_finish_self_test(&state, true));
     TEST_ASSERT(robot_state_request_mode(&state, ROBOT_STATE_MANUAL));
     safety_supervisor_init(&safety);
-    safety_supervisor_session_started(&safety, 100u);
+    TEST_ASSERT(!safety.session_active);
+    TEST_ASSERT(!safety.link_healthy);
+    safety_supervisor_valid_slot(&safety, 100u);
+    TEST_ASSERT(safety.session_active);
+    TEST_ASSERT(safety.link_healthy);
+    TEST_ASSERT_EQ(100u, safety.last_valid_slot_ms);
     TEST_ASSERT(!safety_supervisor_tick(&safety, &state, 850u));
     TEST_ASSERT(safety_supervisor_tick(&safety, &state, 851u));
     TEST_ASSERT_EQ(ROBOT_STATE_ESTOP, state.value);
+    TEST_ASSERT_EQ(SAFETY_REASON_LINK_LOST, state.fault_code);
+    TEST_ASSERT(!safety.session_active);
+    TEST_ASSERT(!safety.link_healthy);
     TEST_ASSERT(!robot_state_clear_estop(&state, false, true, true));
-    TEST_ASSERT(robot_state_clear_estop(&state, true, true, true));
+    safety_supervisor_valid_slot(&safety, 900u);
+    TEST_ASSERT(safety.session_active);
+    TEST_ASSERT(safety.link_healthy);
+    TEST_ASSERT_EQ(ROBOT_STATE_ESTOP, state.value);
+    TEST_ASSERT_EQ(SAFETY_REASON_LINK_LOST, state.fault_code);
+    TEST_ASSERT(robot_state_clear_estop(
+        &state, safety.link_healthy, true, true));
     TEST_ASSERT_EQ(ROBOT_STATE_IDLE, state.value);
+    TEST_ASSERT_EQ(0u, state.fault_code);
     return 0;
 }
 

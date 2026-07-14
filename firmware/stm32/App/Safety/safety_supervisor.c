@@ -22,9 +22,10 @@ void safety_supervisor_session_started(safety_supervisor_t *supervisor, uint32_t
 }
 
 void safety_supervisor_valid_slot(safety_supervisor_t *supervisor, uint32_t now_ms) {
-    if (supervisor == NULL || !supervisor->session_active) {
+    if (supervisor == NULL) {
         return;
     }
+    supervisor->session_active = true;
     supervisor->link_healthy = true;
     supervisor->last_valid_slot_ms = now_ms;
 }

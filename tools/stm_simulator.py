@@ -145,11 +145,6 @@ class RobotSimulator:
         if dedup_key in self._dedup:
             self._outgoing.appendleft(self._dedup[dedup_key])
             return
-        if not self.session and message_type != protocol_ids.MSG_STOP:
-            response = self._nack(seq, command_id, protocol_ids.ERRORCODE_LINK_LOST)
-            self._dedup[dedup_key] = response
-            return
-
         if message_type == protocol_ids.MSG_SET_MODE:
             _command_id, mode = values
             if self.state in (protocol_ids.ROBOTSTATE_ESTOP, protocol_ids.ROBOTSTATE_FAULT):
@@ -190,6 +185,7 @@ class RobotSimulator:
             self._abort_motion(protocol_ids.ABORTREASON_STOP)
             self.state = protocol_ids.ROBOTSTATE_ESTOP
             self.selected_mode = protocol_ids.MODE_IDLE
+            self.fault_code = 11
             response = self._ack(seq, command_id)
             self._dedup[dedup_key] = response
             return
@@ -234,6 +230,8 @@ class RobotSimulator:
         except SlotError:
             self.rx_errors += 1
             return response
+        self.session = True
+        self.last_heartbeat_ms = self.now_ms
         self._handle_command(decoded)
         return response
 
