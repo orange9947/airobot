@@ -24,6 +24,34 @@ TYPE_FORMATS = {
 }
 
 
+def field_format(field: dict) -> str:
+    field_type = field["type"]
+    if field_type == "bytes":
+        length = field.get("length")
+        if isinstance(length, bool) or not isinstance(length, int) or length <= 0:
+            raise ValueError("bytes field requires positive length")
+        return f"{length}s"
+    if field_type not in TYPE_FORMATS:
+        raise ValueError(f"unknown field type: {field_type}")
+    return TYPE_FORMATS[field_type]
+
+
+def decode_bytes_sample(message: dict, field: dict) -> bytes:
+    sample = message["sample"][field["name"]]
+    expected_length = field["length"]
+    if not isinstance(sample, str):
+        raise ValueError(f"invalid bytes sample: {message['name']}.{field['name']}")
+    if len(sample) != expected_length * 2:
+        raise ValueError(f"bytes sample length must be {expected_length}: {message['name']}.{field['name']}")
+    try:
+        value = bytes.fromhex(sample)
+    except ValueError as exc:
+        raise ValueError(f"invalid bytes sample: {message['name']}.{field['name']}") from exc
+    if len(value) != expected_length:
+        raise ValueError(f"bytes sample length must be {expected_length}: {message['name']}.{field['name']}")
+    return value
+
+
 def crc16_ccitt(data: bytes, initial: int = 0xFFFF) -> int:
     crc = initial
     for byte in data:
@@ -41,7 +69,7 @@ def load_schema() -> dict:
 
 
 def message_format(message: dict) -> str:
-    return "<" + "".join(TYPE_FORMATS[field["type"]] for field in message["fields"])
+    return "<" + "".join(field_format(field) for field in message["fields"])
 
 
 def validate_schema(schema: dict) -> None:
@@ -62,11 +90,28 @@ def validate_schema(schema: dict) -> None:
             raise ValueError(f"duplicate message name: {message['name']}")
         ids.add(message["id"])
         names.add(message["name"])
+        fields_by_name = {field["name"]: field for field in message["fields"]}
         for field in message["fields"]:
-            if field["type"] not in TYPE_FORMATS:
-                raise ValueError(f"unknown field type: {field['type']}")
+            field_format(field)
             if field["name"] not in message["sample"]:
                 raise ValueError(f"missing sample field: {message['name']}.{field['name']}")
+            if field["type"] == "bytes":
+                value = decode_bytes_sample(message, field)
+                length_field = fields_by_name.get(f"{field['name']}_length")
+                if length_field is not None:
+                    used_length = message["sample"][length_field["name"]]
+                    if (
+                        isinstance(used_length, bool)
+                        or not isinstance(used_length, int)
+                        or not 0 <= used_length <= field["length"]
+                    ):
+                        raise ValueError(
+                            f"bytes length field out of range: {message['name']}.{length_field['name']}"
+                        )
+                    if any(value[used_length:]):
+                        raise ValueError(
+                            f"non-zero bytes padding: {message['name']}.{field['name']}"
+                        )
         length = struct.calcsize(message_format(message))
         if length > payload_size:
             raise ValueError(f"payload too large: {message['name']}")
@@ -74,7 +119,12 @@ def validate_schema(schema: dict) -> None:
 
 def encode_sample_slot(schema: dict, message: dict, seq: int) -> tuple[bytes, bytes]:
     protocol = schema["protocol"]
-    values = [message["sample"][field["name"]] for field in message["fields"]]
+    values = [
+        decode_bytes_sample(message, field)
+        if field["type"] == "bytes"
+        else message["sample"][field["name"]]
+        for field in message["fields"]
+    ]
     payload = struct.pack(message_format(message), *values)
     slot = bytearray(protocol["slot_size"])
     slot[0:2] = bytes(protocol["magic"])

@@ -11,7 +11,9 @@
     "Mode": {"IDLE": 2, "MANUAL": 3, "AI": 4},
     "Expression": {"NEUTRAL": 0, "HAPPY": 1, "SAD": 2, "THINKING": 3, "SURPRISED": 4, "SLEEPY": 5, "ESTOP": 6, "FAULT": 7},
     "ErrorCode": {"OK": 0, "BAD_SLOT": 1, "BAD_VERSION": 2, "BAD_MESSAGE": 3, "BAD_PAYLOAD": 4, "BAD_STATE": 5, "OUT_OF_RANGE": 6, "QUEUE_FULL": 7, "LINK_LOST": 8, "INTERNAL": 9},
-    "AbortReason": {"STOP": 1, "ESTOP": 2, "TIMEOUT": 3, "MODE_CHANGE": 4, "LINK_LOST": 5, "FAULT": 6}
+    "AbortReason": {"STOP": 1, "ESTOP": 2, "TIMEOUT": 3, "MODE_CHANGE": 4, "LINK_LOST": 5, "FAULT": 6},
+    "ResourceState": {"BOOT_SCAN": 0, "BOOT_VERIFY": 1, "IDLE": 2, "ERASING": 3, "READY": 4, "RECEIVING": 5, "VERIFYING": 6, "COMMITTING": 7, "ABORTED": 8, "FAILED": 9},
+    "ResourceError": {"NONE": 0, "FLASH_UNAVAILABLE": 1, "CAPACITY_INSUFFICIENT": 2, "WRITE_PROTECTED": 3, "UPDATE_BUSY": 4, "BAD_STATE": 5, "SESSION_MISMATCH": 6, "BAD_FORMAT_VERSION": 7, "BAD_PACKAGE_SIZE": 8, "BAD_LENGTH": 9, "BAD_OFFSET": 10, "BAD_DIRECTORY": 11, "BAD_ENCODING": 12, "CHUNK_CRC": 13, "PACKAGE_CRC": 14, "BANK_HEADER_CRC": 15, "FRAME_CRC": 16, "ERASE_FAILED": 17, "PROGRAM_FAILED": 18, "BUSY_TIMEOUT": 19, "LINK_LOST": 20, "INTERNAL": 21}
   },
   "messages": [
     {"name": "NOOP", "id": 0, "fields": [], "sample": {}},
@@ -33,6 +35,12 @@
     {"name": "MOTION_ABORTED", "id": 773, "fields": [{"name": "command_id", "type": "u32"}, {"name": "reason", "type": "u16"}], "sample": {"command_id": 42, "reason": 2}},
     {"name": "MODE_CHANGED", "id": 774, "fields": [{"name": "mode", "type": "u8"}, {"name": "source", "type": "u8"}], "sample": {"mode": 3, "source": 1}},
     {"name": "FAULT_EVENT", "id": 775, "fields": [{"name": "fault_code", "type": "u16"}, {"name": "detail", "type": "u16"}], "sample": {"fault_code": 8, "detail": 750}},
-    {"name": "FLASH_INFO", "id": 1025, "fields": [{"name": "jedec_id", "type": "u32"}, {"name": "capacity_bytes", "type": "u32"}, {"name": "status", "type": "u8"}], "sample": {"jedec_id": 15679504, "capacity_bytes": 1048576, "status": 0}}
+    {"name": "FLASH_INFO", "id": 1025, "fields": [{"name": "jedec_id", "type": "u32"}, {"name": "capacity_bytes", "type": "u32"}, {"name": "status", "type": "u8"}], "sample": {"jedec_id": 15679504, "capacity_bytes": 1048576, "status": 0}},
+    {"name": "RESOURCE_BEGIN", "id": 1026, "fields": [{"name": "command_id", "type": "u32"}, {"name": "update_id", "type": "u32"}, {"name": "package_size", "type": "u32"}, {"name": "package_crc32", "type": "u32"}, {"name": "format_version", "type": "u16"}], "sample": {"command_id": 47, "update_id": 287454020, "package_size": 4096, "package_crc32": 2309737967, "format_version": 1}},
+    {"name": "RESOURCE_CHUNK", "id": 1027, "fields": [{"name": "command_id", "type": "u32"}, {"name": "update_id", "type": "u32"}, {"name": "offset", "type": "u32"}, {"name": "data_length", "type": "u16"}, {"name": "chunk_crc32", "type": "u32"}, {"name": "data", "type": "bytes", "length": 238}], "sample": {"command_id": 48, "update_id": 287454020, "offset": 0, "data_length": 4, "chunk_crc32": 3057449933, "data": "01020304000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}},
+    {"name": "RESOURCE_FINISH", "id": 1028, "fields": [{"name": "command_id", "type": "u32"}, {"name": "update_id", "type": "u32"}], "sample": {"command_id": 49, "update_id": 287454020}},
+    {"name": "RESOURCE_ABORT", "id": 1029, "fields": [{"name": "command_id", "type": "u32"}, {"name": "update_id", "type": "u32"}], "sample": {"command_id": 50, "update_id": 287454020}},
+    {"name": "GET_RESOURCE_STATUS", "id": 1030, "fields": [{"name": "update_id", "type": "u32"}], "sample": {"update_id": 287454020}},
+    {"name": "RESOURCE_STATUS", "id": 1031, "fields": [{"name": "update_id", "type": "u32"}, {"name": "state", "type": "u8"}, {"name": "active_bank", "type": "u8"}, {"name": "generation", "type": "u32"}, {"name": "next_offset", "type": "u32"}, {"name": "total_size", "type": "u32"}, {"name": "error", "type": "u16"}], "sample": {"update_id": 287454020, "state": 5, "active_bank": 0, "generation": 7, "next_offset": 4, "total_size": 4096, "error": 0}}
   ]
 }

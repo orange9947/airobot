@@ -76,6 +76,18 @@ uint16_t robot_protocol_payload_length(uint16_t type) {
             return ROBOT_PAYLOAD_LEN_FAULT_EVENT;
         case ROBOT_MSG_FLASH_INFO:
             return ROBOT_PAYLOAD_LEN_FLASH_INFO;
+        case ROBOT_MSG_RESOURCE_BEGIN:
+            return ROBOT_PAYLOAD_LEN_RESOURCE_BEGIN;
+        case ROBOT_MSG_RESOURCE_CHUNK:
+            return ROBOT_PAYLOAD_LEN_RESOURCE_CHUNK;
+        case ROBOT_MSG_RESOURCE_FINISH:
+            return ROBOT_PAYLOAD_LEN_RESOURCE_FINISH;
+        case ROBOT_MSG_RESOURCE_ABORT:
+            return ROBOT_PAYLOAD_LEN_RESOURCE_ABORT;
+        case ROBOT_MSG_GET_RESOURCE_STATUS:
+            return ROBOT_PAYLOAD_LEN_GET_RESOURCE_STATUS;
+        case ROBOT_MSG_RESOURCE_STATUS:
+            return ROBOT_PAYLOAD_LEN_RESOURCE_STATUS;
         default:
             return UINT16_MAX;
     }
