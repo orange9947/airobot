@@ -11,6 +11,9 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="identity">
+        <button class="icon-button menu-button" id="menu-button" type="button" aria-label="打开导航" aria-controls="primary-sidebar" aria-expanded="false">
+          <img src="/assets/icons/menu.svg" alt="">
+        </button>
         <div class="identity-mark" aria-hidden="true"><span></span><span></span></div>
         <div><strong>桌面机器人</strong><small id="device-address">本地设备</small></div>
       </div>
@@ -25,7 +28,13 @@
       </div>
     </header>
 
-    <aside class="sidebar" aria-label="主导航">
+    <aside class="sidebar" id="primary-sidebar" aria-label="主导航">
+      <div class="drawer-header">
+        <strong>导航</strong>
+        <button class="icon-button" id="menu-close" type="button" aria-label="关闭导航">
+          <img src="/assets/icons/x.svg" alt="">
+        </button>
+      </div>
       <nav>
         <button class="nav-button active" data-view="dashboard" type="button">
           <img src="/assets/icons/gauge.svg" alt=""><span>控制台</span>
@@ -44,6 +53,8 @@
         <img src="/assets/icons/log-out.svg" alt=""><span>退出</span>
       </button>
     </aside>
+
+    <button class="nav-backdrop" id="nav-backdrop" type="button" aria-label="关闭导航" tabindex="-1"></button>
 
     <main class="workspace">
       <section class="view active" id="view-dashboard" aria-labelledby="dashboard-title">

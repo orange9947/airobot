@@ -4,6 +4,7 @@
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
   const demoMode = new URLSearchParams(location.search).get("demo") === "1";
+  const mobileNavigation = window.matchMedia("(max-width: 980px)");
   const state = {
     csrf: "",
     config: null,
@@ -161,6 +162,53 @@
     $("#auth-password").value = "";
   }
 
+  function syncNavigationMode() {
+    const sidebar = $("#primary-sidebar");
+    if (mobileNavigation.matches) {
+      const isOpen = sidebar.classList.contains("open");
+      sidebar.setAttribute("aria-hidden", isOpen ? "false" : "true");
+      sidebar.inert = !isOpen;
+    } else {
+      sidebar.setAttribute("aria-hidden", "false");
+      sidebar.inert = false;
+      sidebar.classList.remove("open");
+      $("#nav-backdrop").classList.remove("open");
+      $("#menu-button").setAttribute("aria-expanded", "false");
+      document.body.classList.remove("drawer-open");
+    }
+  }
+
+  function openNavigation() {
+    if (!mobileNavigation.matches) return;
+    $("#primary-sidebar").classList.add("open");
+    $("#primary-sidebar").setAttribute("aria-hidden", "false");
+    $("#primary-sidebar").inert = false;
+    $("#nav-backdrop").classList.add("open");
+    $("#menu-button").setAttribute("aria-expanded", "true");
+    document.body.classList.add("drawer-open");
+    $("#primary-sidebar [data-view]").focus();
+  }
+
+  function closeNavigation(returnFocus) {
+    const sidebar = $("#primary-sidebar");
+    const wasOpen = sidebar.classList.contains("open");
+    sidebar.classList.remove("open");
+    $("#nav-backdrop").classList.remove("open");
+    $("#menu-button").setAttribute("aria-expanded", "false");
+    document.body.classList.remove("drawer-open");
+    if (wasOpen && returnFocus !== false) $("#menu-button").focus();
+    if (mobileNavigation.matches) {
+      sidebar.setAttribute("aria-hidden", "true");
+      sidebar.inert = true;
+    }
+  }
+
+  function switchView(viewName) {
+    $$("[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === viewName));
+    $$(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${viewName}`));
+    closeNavigation(true);
+  }
+
   function selectedModeName(status) {
     return { 2: "idle", 3: "manual", 4: "ai" }[status.selected_mode] || status.state_name || "idle";
   }
@@ -213,8 +261,10 @@
   async function refreshStatus(quiet) {
     if (!state.authenticated) return;
     try {
-      renderStatus(await api("/api/v1/status"));
+      const status = await api("/api/v1/status");
+      renderStatus(status);
       if (!quiet) addEvent("STATUS", "设备状态已刷新");
+      return status;
     } catch (error) {
       $("#link-state").classList.add("offline");
       $("#link-state span").textContent = "连接失败";
@@ -246,7 +296,9 @@
   }
 
   async function loadConfig() {
-    fillSettings(await api("/api/v1/config"));
+    const config = await api("/api/v1/config");
+    fillSettings(config);
+    return config;
   }
 
   function connectEvents() {
@@ -318,10 +370,16 @@
   }
 
   function bindUi() {
-    $$("[data-view]").forEach((button) => button.addEventListener("click", () => {
-      $$("[data-view]").forEach((item) => item.classList.toggle("active", item === button));
-      $$(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${button.dataset.view}`));
-    }));
+    $$("[data-view]").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
+    $("#menu-button").addEventListener("click", openNavigation);
+    $("#menu-close").addEventListener("click", () => closeNavigation(true));
+    $("#nav-backdrop").addEventListener("click", () => closeNavigation(true));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeNavigation(true);
+    });
+    if (mobileNavigation.addEventListener) mobileNavigation.addEventListener("change", syncNavigationMode);
+    else mobileNavigation.addListener(syncNavigationMode);
+    syncNavigationMode();
     $$("[data-mode]").forEach((button) => button.addEventListener("click", () => sendMode(button.dataset.mode)));
     $$("[data-direction]").forEach((button) => button.addEventListener("click", () => sendMotion(button.dataset.direction)));
     $("#motion-stop").addEventListener("click", stopRobot);
@@ -339,7 +397,10 @@
         state.csrf = result.csrf;
         state.authenticated = true;
         hideAuth();
-        await Promise.all([loadConfig(), refreshStatus(true)]);
+        const [config, status] = await Promise.all([loadConfig(), refreshStatus(true)]);
+        if (status && status.network && status.network.mode === "access_point" && config.wifi && !config.wifi.ssid) {
+          switchView("settings");
+        }
         connectEvents();
         addEvent("SESSION", "控制台已连接");
       } catch (error) { $("#auth-error").textContent = error.message; }

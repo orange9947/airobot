@@ -91,6 +91,7 @@ img { display: block; }
 .identity-mark span:last-child, .auth-mark span:last-child { right: 8px; }
 
 .topbar-actions { gap: 8px; }
+.drawer-header, .nav-backdrop { display: none; }
 .link-state { gap: 7px; height: 34px; padding: 0 10px; color: #ccd4d8; font-size: 12px; }
 .link-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
 .link-state.online i { background: #4fd09d; box-shadow: 0 0 0 3px rgba(79, 208, 157, 0.14); }
@@ -104,6 +105,7 @@ img { display: block; }
   border-radius: 5px;
 }
 .icon-button { width: 36px; border: 1px solid #4c575d; background: #2a3135; }
+.menu-button { display: none; }
 .icon-button:hover { background: #384146; }
 .icon-button img { width: 17px; filter: invert(1); }
 .stop-command { gap: 7px; padding: 0 13px; border: 1px solid #e25b5b; color: #fff; background: var(--red); font-weight: 700; }
@@ -306,15 +308,39 @@ img { display: block; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
 @media (max-width: 980px) {
-  html, body { height: 100%; overflow: hidden; }
-  .app-shell { height: 100vh; min-height: 0; grid-template: 60px minmax(0, 1fr) 58px / 1fr; overflow: hidden; }
-  .topbar { height: 60px; }
-  .sidebar { position: static; z-index: 30; grid-row: 3; display: block; width: 100%; height: 58px; padding: 5px 8px; border: 0; border-top: 1px solid #151b1e; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(4, 1fr); height: 100%; }
-  .nav-button { justify-content: center; min-height: 48px; padding: 0; }
-  .nav-button span { display: none; }
-  .nav-button.active { box-shadow: inset 0 -3px #62d5a7; }
-  .logout-button { display: none; }
+  html, body { height: 100vh; height: 100dvh; overflow: hidden; }
+  .app-shell { height: 100vh; height: 100dvh; min-height: 0; grid-template: 60px minmax(0, 1fr) / 1fr; overflow: hidden; }
+  .topbar { height: 60px; padding-left: max(18px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right)); }
+  .menu-button { display: inline-flex; flex: 0 0 auto; }
+  .sidebar {
+    position: fixed;
+    z-index: 70;
+    inset: 0 auto 0 0;
+    top: 0;
+    display: flex;
+    justify-content: flex-start;
+    width: min(280px, 84vw);
+    height: 100vh;
+    height: 100dvh;
+    padding: max(12px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    border: 0;
+    border-right: 1px solid #151b1e;
+    box-shadow: 14px 0 32px rgba(10, 14, 16, 0.28);
+    transform: translateX(-105%);
+    transition: transform 180ms ease-out;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .drawer-header { display: flex; align-items: center; justify-content: space-between; min-height: 50px; margin: 0 2px 12px; padding: 0 3px 10px 10px; border-bottom: 1px solid #414a4f; color: #fff; }
+  .drawer-header strong { font-size: 14px; }
+  .drawer-header .icon-button { display: inline-flex; }
+  .sidebar nav { display: grid; grid-template-columns: 1fr; gap: 4px; height: auto; }
+  .nav-button { justify-content: flex-start; min-height: 46px; padding: 0 12px; }
+  .nav-button span { display: inline; }
+  .nav-button.active { box-shadow: inset 3px 0 #62d5a7; }
+  .logout-button { display: flex; margin-top: auto; }
+  .nav-backdrop { position: fixed; z-index: 60; inset: 0; display: block; border: 0; border-radius: 0; opacity: 0; background: rgba(13, 17, 19, 0.52); pointer-events: none; transition: opacity 180ms ease-out; }
+  .nav-backdrop.open { opacity: 1; pointer-events: auto; }
+  body.drawer-open { overflow: hidden; }
   .workspace { grid-row: 2; min-height: 0; padding: 18px; overflow-y: auto; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .device-panel { grid-row: auto; }
@@ -323,8 +349,9 @@ img { display: block; }
 }
 
 @media (max-width: 640px) {
-  .topbar { padding: 0 10px; }
+  .topbar { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
   .identity small, .link-state span, .icon-button { display: none; }
+  .menu-button, .drawer-header .icon-button { display: inline-flex; }
   .stop-command { width: 40px; padding: 0; }.stop-command span { display: none; }
   .workspace { padding: 14px 10px 20px; }
   .view-heading { align-items: flex-start; flex-direction: column; }
