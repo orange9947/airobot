@@ -60,11 +60,12 @@ class WebService:
         self.static_root = static_root.rstrip("/")
         self.sessions = {}
         self.websocket_clients = []
-        self.events = deque((), 32)
+        self.event_capacity = 32
+        self.events = deque((), self.event_capacity)
         self.server = None
 
     def publish(self, event):
-        if len(self.events) >= self.events.maxlen:
+        if len(self.events) >= self.event_capacity:
             self.events.popleft()
         self.events.append(event)
 

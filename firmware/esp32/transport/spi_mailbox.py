@@ -19,7 +19,8 @@ class MailboxClient:
         self.ack_timeout_ms = ack_timeout_ms
         self.max_retries = max_retries
         self._seq = 0
-        self._queue = deque((), 8)
+        self._queue_capacity = 8
+        self._queue = deque((), self._queue_capacity)
         self._pending = None
         self._last_heartbeat = 0
         self.rx_errors = 0
@@ -32,7 +33,7 @@ class MailboxClient:
         return self._seq
 
     def submit(self, message_type, values, command_id=0, flags=None, expected_type=None):
-        if len(self._queue) >= self._queue.maxlen:
+        if len(self._queue) >= self._queue_capacity:
             raise RuntimeError("mailbox command queue full")
         if flags is None:
             flags = protocol_ids.SLOTFLAGS_ACK_REQUEST

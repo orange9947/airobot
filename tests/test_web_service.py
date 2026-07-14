@@ -155,6 +155,12 @@ class WebServiceTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_event_queue_keeps_its_explicit_capacity(self):
+        for index in range(40):
+            self.web.publish({"index": index})
+        self.assertEqual(len(self.web.events), 32)
+        self.assertEqual(self.web.events[0]["index"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()

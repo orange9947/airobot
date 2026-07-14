@@ -48,6 +48,17 @@ class SpiMailboxTests(unittest.TestCase):
         self.assertIsNone(mailbox.poll(0))
         self.assertEqual(mailbox.rx_errors, 1)
 
+    def test_command_queue_uses_an_explicit_micropython_compatible_capacity(self):
+        mailbox = MailboxClient(lambda _tx: bytes(protocol_ids.SLOT_SIZE), boot_id=1)
+        for command_id in range(8):
+            mailbox.submit(
+                protocol_ids.MSG_SET_MODE,
+                (command_id, protocol_ids.MODE_IDLE),
+                command_id=command_id,
+            )
+        with self.assertRaisesRegex(RuntimeError, "queue full"):
+            mailbox.submit(protocol_ids.MSG_SET_MODE, (9, protocol_ids.MODE_IDLE), command_id=9)
+
 
 if __name__ == "__main__":
     unittest.main()
