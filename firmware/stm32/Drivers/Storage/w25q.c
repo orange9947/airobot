@@ -7,7 +7,11 @@
 
 #define W25Q_COMMAND_JEDEC_ID 0x9Fu
 #define W25Q_COMMAND_READ 0x03u
+#define W25Q_COMMAND_RELEASE_POWER_DOWN 0xABu
+#define W25Q_COMMAND_RESET_ENABLE 0x66u
+#define W25Q_COMMAND_RESET 0x99u
 #define W25Q_TIMEOUT_MS 20u
+#define W25Q_ID_ATTEMPTS 3u
 
 static void select_flash(bool selected) {
     HAL_GPIO_WritePin(W25Q_CS_PORT, W25Q_CS_PIN, selected ? GPIO_PIN_RESET : GPIO_PIN_SET);
@@ -17,31 +21,55 @@ static bool transfer(const uint8_t *tx, uint8_t *rx, uint16_t length) {
     return HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)tx, rx, length, W25Q_TIMEOUT_MS) == HAL_OK;
 }
 
+static bool send_command(uint8_t command) {
+    HAL_StatusTypeDef status;
+    select_flash(true);
+    status = HAL_SPI_Transmit(&hspi2, &command, 1u, W25Q_TIMEOUT_MS);
+    select_flash(false);
+    return status == HAL_OK;
+}
+
 bool w25q_init(w25q_t *flash) {
-    uint8_t tx[4] = {W25Q_COMMAND_JEDEC_ID, 0xFFu, 0xFFu, 0xFFu};
-    uint8_t rx[4] = {0};
+    uint8_t attempt;
     uint8_t capacity_code;
 
     if (flash == NULL) {
         return false;
     }
     *flash = (w25q_t){0};
-    select_flash(true);
-    if (!transfer(tx, rx, sizeof(tx))) {
+    if (!send_command(W25Q_COMMAND_RELEASE_POWER_DOWN)) {
+        flash->errors++;
+        return false;
+    }
+    HAL_Delay(1u);
+    if (!send_command(W25Q_COMMAND_RESET_ENABLE) ||
+        !send_command(W25Q_COMMAND_RESET)) {
+        flash->errors++;
+        return false;
+    }
+    HAL_Delay(1u);
+    for (attempt = 0u; attempt < W25Q_ID_ATTEMPTS; ++attempt) {
+        uint8_t tx[4] = {W25Q_COMMAND_JEDEC_ID, 0xFFu, 0xFFu, 0xFFu};
+        uint8_t rx[4] = {0};
+        select_flash(true);
+        if (!transfer(tx, rx, sizeof(tx))) {
+            select_flash(false);
+            flash->errors++;
+            continue;
+        }
         select_flash(false);
-        flash->errors++;
-        return false;
+        flash->jedec_id = ((uint32_t)rx[1] << 16u) | ((uint32_t)rx[2] << 8u) | rx[3];
+        capacity_code = rx[3];
+        if (rx[1] != 0x00u && rx[1] != 0xFFu &&
+            capacity_code >= 0x14u && capacity_code <= 0x1Fu) {
+            flash->capacity_bytes = 1u << capacity_code;
+            flash->available = flash->capacity_bytes >= 1048576u;
+            return flash->available;
+        }
+        HAL_Delay(1u);
     }
-    select_flash(false);
-    flash->jedec_id = ((uint32_t)rx[1] << 16u) | ((uint32_t)rx[2] << 8u) | rx[3];
-    capacity_code = rx[3];
-    if (rx[1] == 0x00u || rx[1] == 0xFFu || capacity_code < 0x14u || capacity_code > 0x1Fu) {
-        flash->errors++;
-        return false;
-    }
-    flash->capacity_bytes = 1u << capacity_code;
-    flash->available = flash->capacity_bytes >= 1048576u;
-    return flash->available;
+    flash->errors++;
+    return false;
 }
 
 bool w25q_read(w25q_t *flash, uint32_t address, uint8_t *data, uint16_t length) {
