@@ -10,6 +10,9 @@ class DeviceCommandError(RuntimeError):
     pass
 
 
+SPI_POLL_INTERVAL_MS = 100
+
+
 class DeviceService:
     def __init__(self, link, boot_id):
         self.mailbox = MailboxClient(link.exchange, boot_id)
@@ -131,7 +134,8 @@ class DeviceService:
             if self.connected and ticks_diff(now, self._last_state_request) >= 1000 and self.mailbox._pending is None:
                 self._last_state_request = now
                 self.mailbox.request(protocol_ids.MSG_GET_STATE, (), protocol_ids.MSG_STATE_SNAPSHOT)
-            await sleep_ms(10 if self.mailbox._pending is not None else 50)
+            # The STM32 may be flushing the software-I2C OLED before it can rearm SPI DMA.
+            await sleep_ms(SPI_POLL_INTERVAL_MS)
 
     async def wait_connected(self, timeout_ms=2000):
         started = ticks_ms()

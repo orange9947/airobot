@@ -3,7 +3,10 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "board_pins.h"
 #include "main.h"
+
+#define NSS_RELEASE_TIMEOUT_MS 5u
 
 static spi_mailbox_t *active_mailbox;
 
@@ -30,8 +33,15 @@ void spi_mailbox_init(spi_mailbox_t *mailbox) {
 }
 
 bool spi_mailbox_start(spi_mailbox_t *mailbox) {
+    uint32_t started_ms;
     if (mailbox == NULL || mailbox->armed) {
         return false;
+    }
+    started_ms = HAL_GetTick();
+    while (HAL_GPIO_ReadPin(ESP_NSS_PORT, ESP_NSS_PIN) == GPIO_PIN_RESET) {
+        if ((uint32_t)(HAL_GetTick() - started_ms) >= NSS_RELEASE_TIMEOUT_MS) {
+            return false;
+        }
     }
     mailbox->transfer_complete = false;
     mailbox->transfer_error = false;

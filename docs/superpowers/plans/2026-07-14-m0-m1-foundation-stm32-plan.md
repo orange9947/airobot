@@ -154,7 +154,7 @@ git diff --exit-code -- protocol/generated protocol/golden
 2. 所有黄金帧解码后字段与清单输入一致，再编码必须得到原字节。
 3. 编解码器只接受恰好 268 字节的槽，并验证 MAGIC、版本、LEN、零填充和 CRC。
 4. CRC 错误、LEN 大于 256、未知版本和非零填充必须产生计数，不导致 SPI 轮询任务退出。
-5. 邮箱跟踪命令序号、10 ms 轮询、100 ms ACK 目标和最多 3 次相同 command_id 重发。
+5. 邮箱跟踪命令序号、100 ms 轮询、250 ms 重试阈值和最多 3 次相同 command_id 重发。
 
 实现约束：
 

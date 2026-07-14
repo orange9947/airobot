@@ -74,10 +74,21 @@ target_include_directories(desktop_robot PRIVATE
 
 if(DEFINED ENV{AIROBOT_ARM_GCC_ROOT})
   set(ARM_ROOT "$ENV{AIROBOT_ARM_GCC_ROOT}")
+  execute_process(
+    COMMAND ${CMAKE_C_COMPILER} -mcpu=cortex-m3 -mthumb -print-multi-directory
+    OUTPUT_VARIABLE ARM_MULTILIB_DIRECTORY
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(ARM_NEWLIB_DIRECTORY
+      "${ARM_ROOT}/usr/lib/arm-none-eabi/newlib/${ARM_MULTILIB_DIRECTORY}")
+  if(NOT EXISTS "${ARM_NEWLIB_DIRECTORY}/libc_nano.a")
+    message(FATAL_ERROR "Cortex-M3 newlib multilib is missing: ${ARM_NEWLIB_DIRECTORY}")
+  endif()
   target_include_directories(desktop_robot SYSTEM PRIVATE "${ARM_ROOT}/usr/include/newlib")
-  target_link_directories(desktop_robot PRIVATE "${ARM_ROOT}/usr/lib/arm-none-eabi/newlib")
-  set(NANO_SPECS "--specs=${ARM_ROOT}/usr/lib/arm-none-eabi/newlib/nano.specs")
-  set(NOSYS_SPECS "--specs=${ARM_ROOT}/usr/lib/arm-none-eabi/newlib/nosys.specs")
+  target_link_directories(desktop_robot PRIVATE "${ARM_NEWLIB_DIRECTORY}")
+  set(NANO_SPECS "--specs=${ARM_NEWLIB_DIRECTORY}/nano.specs")
+  set(NOSYS_SPECS "--specs=${ARM_NEWLIB_DIRECTORY}/nosys.specs")
 else()
   set(NANO_SPECS "--specs=nano.specs")
   set(NOSYS_SPECS "--specs=nosys.specs")
@@ -107,5 +118,9 @@ add_custom_command(TARGET desktop_robot POST_BUILD
   COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:desktop_robot>
           ${CMAKE_CURRENT_BINARY_DIR}/desktop_robot.bin
   COMMAND ${CMAKE_SIZE} $<TARGET_FILE:desktop_robot>
+  COMMAND ${CMAKE_COMMAND} -E env
+          AIROBOT_ARM_GCC_ROOT=$ENV{AIROBOT_ARM_GCC_ROOT}
+          python3 ${PROJECT_SOURCE_DIR}/tools/check_firmware_isa.py
+          $<TARGET_FILE:desktop_robot>
   VERBATIM
 )

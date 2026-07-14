@@ -410,7 +410,7 @@ void app_process(void) {
             route_slot(&slot, now_ms);
         }
         (void)spi_mailbox_rearm(&app.mailbox);
-    } else if (app.mailbox.transfer_error && !app.mailbox.armed) {
+    } else if (!app.mailbox.armed) {
         (void)spi_mailbox_rearm(&app.mailbox);
     }
 

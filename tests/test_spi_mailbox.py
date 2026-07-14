@@ -28,6 +28,15 @@ class DelayedDevice:
         return response
 
 
+class SilentDevice:
+    def __init__(self):
+        self.transactions = []
+
+    def exchange(self, tx):
+        self.transactions.append(decode_slot(tx))
+        return encode_slot(protocol_ids.MSG_NOOP, len(self.transactions))
+
+
 class SpiMailboxTests(unittest.TestCase):
     def test_command_ack_arrives_on_next_transaction(self):
         device = DelayedDevice()
@@ -58,6 +67,21 @@ class SpiMailboxTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(RuntimeError, "queue full"):
             mailbox.submit(protocol_ids.MSG_SET_MODE, (9, protocol_ids.MODE_IDLE), command_id=9)
+
+    def test_command_is_not_retried_before_stm32_rearm_window(self):
+        device = SilentDevice()
+        mailbox = MailboxClient(device.exchange, boot_id=1)
+        seq = mailbox.submit(
+            protocol_ids.MSG_SET_MODE,
+            (42, protocol_ids.MODE_MANUAL),
+            command_id=42,
+        )
+        mailbox.poll(0)
+        mailbox.poll(100)
+        mailbox.poll(250)
+        self.assertEqual(device.transactions[0]["seq"], seq)
+        self.assertEqual(device.transactions[1]["type"], protocol_ids.MSG_NOOP)
+        self.assertEqual(device.transactions[2]["seq"], seq)
 
 
 if __name__ == "__main__":

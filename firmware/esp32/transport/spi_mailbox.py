@@ -12,7 +12,7 @@ def _elapsed(now_ms, then_ms):
 
 
 class MailboxClient:
-    def __init__(self, exchange, boot_id, heartbeat_ms=250, ack_timeout_ms=100, max_retries=3):
+    def __init__(self, exchange, boot_id, heartbeat_ms=250, ack_timeout_ms=250, max_retries=3):
         self._exchange = exchange
         self.boot_id = boot_id & 0xFFFFFFFF
         self.heartbeat_ms = heartbeat_ms
