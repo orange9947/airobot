@@ -1,7 +1,6 @@
 """Wi-Fi station connection with a protected setup access-point fallback."""
 
 import binascii
-import os
 
 from firmware.esp32.core.compat import sleep_ms, ticks_diff, ticks_ms
 
@@ -23,7 +22,7 @@ class NetworkService:
         self.ip = "0.0.0.0"
         suffix = binascii.hexlify(unique_id()[-2:]).decode().upper()
         self.ap_ssid = "Robot-" + suffix
-        self.ap_password = "RBT-" + binascii.hexlify(os.urandom(4)).decode().upper()
+        self.ap_password = config.setup_ap_password()
 
     async def connect_station(self, timeout_ms=15000):
         if self.network is None:

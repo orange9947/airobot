@@ -7,7 +7,14 @@ try:
 except ImportError:
     import ujson as json
 
-from firmware.esp32.core.security import new_password_record, verify_password
+from firmware.esp32.core.security import (
+    DEFAULT_PASSWORD_ITERATIONS,
+    new_password_record,
+    new_password_record_async,
+    random_token,
+    verify_password,
+    verify_password_async,
+)
 
 DEFAULT_CONFIG = {
     "schema": 1,
@@ -31,7 +38,11 @@ class ConfigService:
         self.config_path = self.root + "/device.json"
         self.secrets_path = self.root + "/secrets.json"
         self.config = _deep_copy(DEFAULT_CONFIG)
-        self.secrets = {"providers": {}, "admin_password": None}
+        self.secrets = {
+            "providers": {},
+            "admin_password": None,
+            "setup_ap_password": "",
+        }
 
     def _ensure_root(self):
         try:
@@ -65,7 +76,8 @@ class ConfigService:
     def load(self):
         self.config = self._read_json(self.config_path, DEFAULT_CONFIG)
         self.secrets = self._read_json(
-            self.secrets_path, {"providers": {}, "admin_password": None}
+            self.secrets_path,
+            {"providers": {}, "admin_password": None, "setup_ap_password": ""},
         )
         self._validate_config(self.config)
         return self.config
@@ -129,12 +141,58 @@ class ConfigService:
     def has_admin_password(self):
         return bool(self.secrets.get("admin_password"))
 
-    def set_admin_password(self, password, iterations=20000):
+    def set_admin_password(self, password, iterations=DEFAULT_PASSWORD_ITERATIONS):
         if len(password) < 8:
             raise ValueError("password must contain at least 8 characters")
         self.secrets["admin_password"] = new_password_record(password, iterations)
         self._atomic_write(self.secrets_path, self.secrets)
 
+    async def set_admin_password_async(
+        self, password, iterations=DEFAULT_PASSWORD_ITERATIONS
+    ):
+        if len(password) < 8:
+            raise ValueError("password must contain at least 8 characters")
+        self.secrets["admin_password"] = await new_password_record_async(
+            password, iterations
+        )
+        self._atomic_write(self.secrets_path, self.secrets)
+
     def verify_admin_password(self, password):
         record = self.secrets.get("admin_password")
         return bool(record) and verify_password(password, record)
+
+    async def verify_admin_password_async(self, password):
+        record = self.secrets.get("admin_password")
+        return bool(record) and await verify_password_async(password, record)
+
+    def admin_password_iterations(self):
+        record = self.secrets.get("admin_password") or {}
+        try:
+            return int(record.get("iterations", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def set_setup_ap_password(self, password):
+        if not isinstance(password, str):
+            raise TypeError("setup AP password must be text")
+        try:
+            encoded = password.encode("ascii")
+        except UnicodeError:
+            raise ValueError("setup AP password must use ASCII characters")
+        if not 8 <= len(encoded) <= 63:
+            raise ValueError("setup AP password must contain 8 to 63 characters")
+        self.secrets["setup_ap_password"] = password
+        self._atomic_write(self.secrets_path, self.secrets)
+
+    def setup_ap_password(self):
+        password = self.secrets.get("setup_ap_password", "")
+        if isinstance(password, str):
+            try:
+                encoded = password.encode("ascii")
+            except UnicodeError:
+                encoded = b""
+            if 8 <= len(encoded) <= 63:
+                return password
+        password = "RBT-" + random_token(5).upper()
+        self.set_setup_ap_password(password)
+        return password

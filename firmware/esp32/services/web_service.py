@@ -11,7 +11,7 @@ except ImportError:
     import ujson as json
 
 from firmware.esp32.core.compat import asyncio, sleep_ms
-from firmware.esp32.core.security import random_token
+from firmware.esp32.core.security import DEFAULT_PASSWORD_ITERATIONS, random_token
 from protocol.generated import protocol_ids
 
 WEBSOCKET_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -63,6 +63,7 @@ class WebService:
         self.event_capacity = 32
         self.events = deque((), self.event_capacity)
         self.server = None
+        self.auth_busy = False
 
     def publish(self, event):
         if len(self.events) >= self.event_capacity:
@@ -146,15 +147,27 @@ class WebService:
         return status
 
     async def _login(self, body):
+        if self.auth_busy:
+            raise ApiError(409, "authentication is busy")
+        self.auth_busy = True
+        try:
+            return await self._login_once(body)
+        finally:
+            self.auth_busy = False
+
+    async def _login_once(self, body):
         request = self._body_json(body)
         password = request.get("password", "")
         if not self.config.has_admin_password():
             try:
-                self.config.set_admin_password(password)
+                await self.config.set_admin_password_async(password)
             except (TypeError, ValueError) as exc:
                 raise ApiError(400, str(exc))
-        elif not self.config.verify_admin_password(password):
-            raise ApiError(401, "invalid password")
+        else:
+            if not await self.config.verify_admin_password_async(password):
+                raise ApiError(401, "invalid password")
+            if self.config.admin_password_iterations() != DEFAULT_PASSWORD_ITERATIONS:
+                await self.config.set_admin_password_async(password)
         if len(self.sessions) >= 4:
             self.sessions.pop(next(iter(self.sessions)))
         token = random_token()

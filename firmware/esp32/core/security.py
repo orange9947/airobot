@@ -5,6 +5,12 @@ import hashlib
 import os
 import struct
 
+from firmware.esp32.core.compat import sleep_ms
+
+
+DEFAULT_PASSWORD_ITERATIONS = 2000
+PASSWORD_YIELD_INTERVAL = 16
+
 
 def _hmac_sha256(key, message):
     block_size = 64
@@ -16,7 +22,9 @@ def _hmac_sha256(key, message):
     return hashlib.sha256(outer + hashlib.sha256(inner + message).digest()).digest()
 
 
-def pbkdf2_sha256(password, salt, iterations=20000):
+def pbkdf2_sha256(password, salt, iterations=DEFAULT_PASSWORD_ITERATIONS):
+    if iterations < 1:
+        raise ValueError("iterations must be positive")
     if isinstance(password, str):
         password = password.encode("utf-8")
     block = _hmac_sha256(password, salt + struct.pack(">I", 1))
@@ -29,9 +37,41 @@ def pbkdf2_sha256(password, salt, iterations=20000):
     return bytes(result)
 
 
-def new_password_record(password, iterations=20000):
+async def pbkdf2_sha256_async(
+    password, salt, iterations=DEFAULT_PASSWORD_ITERATIONS,
+    yield_every=PASSWORD_YIELD_INTERVAL,
+):
+    if iterations < 1:
+        raise ValueError("iterations must be positive")
+    if yield_every < 1:
+        raise ValueError("yield interval must be positive")
+    if isinstance(password, str):
+        password = password.encode("utf-8")
+    block = _hmac_sha256(password, salt + struct.pack(">I", 1))
+    result = bytearray(block)
+    previous = block
+    for index in range(1, iterations):
+        previous = _hmac_sha256(password, previous)
+        for offset, value in enumerate(previous):
+            result[offset] ^= value
+        if index % yield_every == 0:
+            await sleep_ms(0)
+    return bytes(result)
+
+
+def new_password_record(password, iterations=DEFAULT_PASSWORD_ITERATIONS):
     salt = os.urandom(16)
     derived = pbkdf2_sha256(password, salt, iterations)
+    return {
+        "salt": binascii.hexlify(salt).decode(),
+        "hash": binascii.hexlify(derived).decode(),
+        "iterations": iterations,
+    }
+
+
+async def new_password_record_async(password, iterations=DEFAULT_PASSWORD_ITERATIONS):
+    salt = os.urandom(16)
+    derived = await pbkdf2_sha256_async(password, salt, iterations)
     return {
         "salt": binascii.hexlify(salt).decode(),
         "hash": binascii.hexlify(derived).decode(),
@@ -53,6 +93,16 @@ def verify_password(password, record):
         salt = binascii.unhexlify(record["salt"])
         expected = binascii.unhexlify(record["hash"])
         actual = pbkdf2_sha256(password, salt, int(record["iterations"]))
+        return constant_time_equal(actual, expected)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+async def verify_password_async(password, record):
+    try:
+        salt = binascii.unhexlify(record["salt"])
+        expected = binascii.unhexlify(record["hash"])
+        actual = await pbkdf2_sha256_async(password, salt, int(record["iterations"]))
         return constant_time_equal(actual, expected)
     except (KeyError, TypeError, ValueError):
         return False

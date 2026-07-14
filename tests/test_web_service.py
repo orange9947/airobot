@@ -161,6 +161,26 @@ class WebServiceTests(unittest.TestCase):
         self.assertEqual(len(self.web.events), 32)
         self.assertEqual(self.web.events[0]["index"], 8)
 
+    def test_login_migrates_iterations_and_rejects_concurrent_work(self):
+        self.config.set_admin_password("test-password", iterations=64)
+
+        async def scenario():
+            body = json.dumps({"password": "test-password"}).encode()
+            first = asyncio.create_task(
+                self.web.dispatch_api("POST", "/api/v1/session/login", {}, body)
+            )
+            await asyncio.sleep(0)
+            with self.assertRaises(ApiError) as context:
+                await self.web.dispatch_api(
+                    "POST", "/api/v1/session/login", {}, body
+                )
+            self.assertEqual(context.exception.status, 409)
+            status, _payload, _extra = await first
+            self.assertEqual(status, 200)
+            self.assertEqual(self.config.admin_password_iterations(), 2000)
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()
