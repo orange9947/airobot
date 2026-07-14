@@ -81,25 +81,35 @@ void ssd1306_fill_rect(ssd1306_t *display, uint8_t x, uint8_t y,
     }
 }
 
-bool ssd1306_flush(ssd1306_t *display) {
-    uint8_t page;
+bool ssd1306_flush_page(ssd1306_t *display, uint8_t page) {
     uint8_t column;
-    if (display == NULL || !display->available) {
+    if (display == NULL || !display->available || page >= SSD1306_PAGE_COUNT) {
         return false;
     }
-    for (page = 0u; page < 8u; ++page) {
-        if (!command(display, (uint8_t)(0xB0u + page)) || !command(display, 0x00u) ||
-            !command(display, 0x10u)) {
+    if (!command(display, (uint8_t)(0xB0u + page)) || !command(display, 0x00u) ||
+        !command(display, 0x10u)) {
+        display->available = false;
+        return false;
+    }
+    for (column = 0u; column < SSD1306_WIDTH; column += 16u) {
+        if (!soft_i2c_write(display->address, SSD1306_DATA_CONTROL,
+                            &display->buffer[(uint16_t)page * SSD1306_WIDTH + column], 16u)) {
+            display->errors++;
             display->available = false;
             return false;
         }
-        for (column = 0u; column < SSD1306_WIDTH; column += 16u) {
-            if (!soft_i2c_write(display->address, SSD1306_DATA_CONTROL,
-                                &display->buffer[(uint16_t)page * SSD1306_WIDTH + column], 16u)) {
-                display->errors++;
-                display->available = false;
-                return false;
-            }
+    }
+    return true;
+}
+
+bool ssd1306_flush(ssd1306_t *display) {
+    uint8_t page;
+    if (display == NULL || !display->available) {
+        return false;
+    }
+    for (page = 0u; page < SSD1306_PAGE_COUNT; ++page) {
+        if (!ssd1306_flush_page(display, page)) {
+            return false;
         }
     }
     return true;

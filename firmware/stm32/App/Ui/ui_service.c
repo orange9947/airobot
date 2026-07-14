@@ -90,6 +90,8 @@ bool ui_service_init(ui_service_t *ui) {
     ui->state = ROBOT_STATE_SELF_TEST;
     ui->link_healthy = false;
     ui->dirty = true;
+    ui->flush_active = false;
+    ui->next_page = 0u;
     ui->last_flush_ms = 0u;
     return ssd1306_init(&ui->display);
 }
@@ -110,13 +112,25 @@ void ui_service_set_status(ui_service_t *ui, robot_state_value_t state, bool lin
 }
 
 void ui_service_tick(ui_service_t *ui, uint32_t now_ms) {
-    if (ui == NULL || !ui->display.available || !ui->dirty ||
-        (uint32_t)(now_ms - ui->last_flush_ms) < 100u) {
+    if (ui == NULL || !ui->display.available) {
         return;
     }
-    draw_face(ui);
-    if (ssd1306_flush(&ui->display)) {
+    if (!ui->flush_active) {
+        if (!ui->dirty || (uint32_t)(now_ms - ui->last_flush_ms) < 100u) {
+            return;
+        }
+        draw_face(ui);
         ui->dirty = false;
+        ui->flush_active = true;
+        ui->next_page = 0u;
+    }
+    if (!ssd1306_flush_page(&ui->display, ui->next_page)) {
+        ui->flush_active = false;
+        return;
+    }
+    ui->next_page++;
+    if (ui->next_page >= SSD1306_PAGE_COUNT) {
+        ui->flush_active = false;
         ui->last_flush_ms = now_ms;
     }
 }

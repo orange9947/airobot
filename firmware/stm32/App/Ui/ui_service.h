@@ -13,6 +13,8 @@ typedef struct {
     robot_state_value_t state;
     bool link_healthy;
     bool dirty;
+    bool flush_active;
+    uint8_t next_page;
     uint32_t last_flush_ms;
 } ui_service_t;
 
