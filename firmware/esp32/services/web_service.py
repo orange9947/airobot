@@ -256,6 +256,13 @@ class WebService:
             except RuntimeError as exc:
                 raise ApiError(503, str(exc))
             return 200, {"ok": True, "command_id": command_id}, {}
+        if method == "POST" and path == "/api/v1/estop/clear":
+            self._require_auth(headers, True)
+            try:
+                command_id = await self.device.clear_estop()
+            except RuntimeError as exc:
+                raise ApiError(503, str(exc))
+            return 200, {"ok": True, "command_id": command_id}, {}
         if method == "POST" and path == "/api/v1/chat":
             self._require_auth(headers, True)
             try:

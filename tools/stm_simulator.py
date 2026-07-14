@@ -107,6 +107,7 @@ class RobotSimulator:
             self.session = False
             self.state = protocol_ids.ROBOTSTATE_ESTOP
             self.selected_mode = protocol_ids.MODE_IDLE
+            self.fault_code = protocol_ids.ERRORCODE_LINK_LOST
             self._abort_motion(protocol_ids.ABORTREASON_LINK_LOST)
             self._queue(protocol_ids.MSG_FAULT_EVENT, (protocol_ids.ERRORCODE_LINK_LOST, self.HEARTBEAT_TIMEOUT_MS), priority=True)
 
@@ -151,7 +152,9 @@ class RobotSimulator:
 
         if message_type == protocol_ids.MSG_SET_MODE:
             _command_id, mode = values
-            if mode not in (protocol_ids.MODE_IDLE, protocol_ids.MODE_MANUAL, protocol_ids.MODE_AI):
+            if self.state in (protocol_ids.ROBOTSTATE_ESTOP, protocol_ids.ROBOTSTATE_FAULT):
+                response = self._nack(seq, command_id, protocol_ids.ERRORCODE_BAD_STATE)
+            elif mode not in (protocol_ids.MODE_IDLE, protocol_ids.MODE_MANUAL, protocol_ids.MODE_AI):
                 response = self._nack(seq, command_id, protocol_ids.ERRORCODE_BAD_PAYLOAD)
             else:
                 self._abort_motion(protocol_ids.ABORTREASON_MODE_CHANGE)
@@ -191,7 +194,29 @@ class RobotSimulator:
             self._dedup[dedup_key] = response
             return
 
-        if message_type in (protocol_ids.MSG_SET_EXPRESSION, protocol_ids.MSG_SET_RUNTIME_CONFIG):
+        if message_type == protocol_ids.MSG_SET_EXPRESSION:
+            if self.state in (protocol_ids.ROBOTSTATE_ESTOP, protocol_ids.ROBOTSTATE_FAULT):
+                response = self._nack(seq, command_id, protocol_ids.ERRORCODE_BAD_STATE)
+            elif values[1] > protocol_ids.EXPRESSION_SLEEPY:
+                response = self._nack(seq, command_id, protocol_ids.ERRORCODE_BAD_PAYLOAD)
+            else:
+                response = self._ack(seq, command_id)
+            self._dedup[dedup_key] = response
+            return
+
+        if message_type == protocol_ids.MSG_CLEAR_ESTOP:
+            if self.state != protocol_ids.ROBOTSTATE_ESTOP or self.active is not None:
+                response = self._nack(seq, command_id, protocol_ids.ERRORCODE_BAD_STATE)
+            else:
+                self.state = protocol_ids.ROBOTSTATE_IDLE
+                self.selected_mode = protocol_ids.MODE_IDLE
+                self.fault_code = 0
+                response = self._ack(seq, command_id)
+                self._queue(protocol_ids.MSG_MODE_CHANGED, (protocol_ids.MODE_IDLE, 3))
+            self._dedup[dedup_key] = response
+            return
+
+        if message_type == protocol_ids.MSG_SET_RUNTIME_CONFIG:
             response = self._ack(seq, command_id)
             self._dedup[dedup_key] = response
             return

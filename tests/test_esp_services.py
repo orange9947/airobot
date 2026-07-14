@@ -117,6 +117,32 @@ class EspServiceTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_device_service_clears_estop_with_simulator(self):
+        async def scenario():
+            link = SimulatedSpiLink()
+            device = DeviceService(link, boot_id=0x45535031)
+            task = asyncio.create_task(device.run())
+            try:
+                await device.wait_connected()
+                await device.stop()
+                self.assertEqual(link.simulator.state, protocol_ids.ROBOTSTATE_ESTOP)
+                device.status.update(
+                    state=protocol_ids.ROBOTSTATE_ESTOP,
+                    selected_mode=protocol_ids.MODE_IDLE,
+                    fault_code=protocol_ids.ERRORCODE_LINK_LOST,
+                )
+                command_id = await device.clear_estop()
+                self.assertGreater(command_id, 0)
+                self.assertEqual(link.simulator.state, protocol_ids.ROBOTSTATE_IDLE)
+                self.assertEqual(device.status["state"], protocol_ids.ROBOTSTATE_IDLE)
+                self.assertEqual(device.status["fault_code"], 0)
+            finally:
+                device.running = False
+                await asyncio.sleep(0.06)
+                await task
+
+        asyncio.run(scenario())
+
     def test_device_service_marks_a_lost_spi_link_offline(self):
         async def scenario():
             link = SwitchableSpiLink()

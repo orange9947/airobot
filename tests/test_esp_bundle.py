@@ -58,6 +58,27 @@ class EspBundleTests(unittest.TestCase):
         self.assertIn("function closeClearChatDialog", javascript)
         self.assertIn('api("/api/v1/chat", { method: "DELETE"', javascript)
 
+    def test_login_progress_and_estop_recovery_contract(self):
+        html = (PROJECT_ROOT / "web" / "index.html").read_text()
+        javascript = (PROJECT_ROOT / "web" / "app.js").read_text()
+
+        for element_id in (
+            "auth-status",
+            "auth-submit-icon",
+            "estop-recovery",
+            "clear-estop-button",
+            "clear-estop-layer",
+            "clear-estop-dialog",
+            "clear-estop-cancel",
+            "clear-estop-confirm",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+        self.assertIn("AUTH_VERIFYING", javascript)
+        self.assertIn("AUTH_LOADING", javascript)
+        self.assertIn("AbortController", javascript)
+        self.assertIn('stateName === "estop"', javascript)
+        self.assertIn('api("/api/v1/estop/clear"', javascript)
+
 
 if __name__ == "__main__":
     unittest.main()

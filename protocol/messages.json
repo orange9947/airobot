@@ -25,6 +25,7 @@
     {"name": "STOP", "id": 515, "fields": [{"name": "command_id", "type": "u32"}, {"name": "reason", "type": "u8"}], "sample": {"command_id": 43, "reason": 1}},
     {"name": "SET_EXPRESSION", "id": 516, "fields": [{"name": "command_id", "type": "u32"}, {"name": "expression", "type": "u8"}], "sample": {"command_id": 44, "expression": 1}},
     {"name": "SET_RUNTIME_CONFIG", "id": 517, "fields": [{"name": "command_id", "type": "u32"}, {"name": "soft_rate_sps", "type": "u16"}, {"name": "accel_sps2", "type": "u16"}, {"name": "hold_ms", "type": "u16"}, {"name": "flags", "type": "u16"}], "sample": {"command_id": 45, "soft_rate_sps": 400, "accel_sps2": 600, "hold_ms": 200, "flags": 0}},
+    {"name": "CLEAR_ESTOP", "id": 518, "fields": [{"name": "command_id", "type": "u32"}], "sample": {"command_id": 46}},
     {"name": "ACK", "id": 769, "fields": [{"name": "request_seq", "type": "u16"}, {"name": "command_id", "type": "u32"}, {"name": "status", "type": "u8"}], "sample": {"request_seq": 10, "command_id": 42, "status": 0}},
     {"name": "NACK", "id": 770, "fields": [{"name": "request_seq", "type": "u16"}, {"name": "command_id", "type": "u32"}, {"name": "error", "type": "u16"}], "sample": {"request_seq": 11, "command_id": 42, "error": 5}},
     {"name": "MOTION_STARTED", "id": 771, "fields": [{"name": "command_id", "type": "u32"}], "sample": {"command_id": 42}},

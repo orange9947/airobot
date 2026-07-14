@@ -27,7 +27,7 @@ bool robot_state_finish_self_test(robot_state_t *state, bool safety_ok);
 bool robot_state_request_mode(robot_state_t *state, robot_state_value_t mode);
 void robot_state_enter_estop(robot_state_t *state, uint16_t reason);
 bool robot_state_clear_estop(robot_state_t *state, bool link_healthy,
-                             bool button_released, bool local_confirm);
+                             bool button_released, bool operator_confirm);
 void robot_state_enter_fault(robot_state_t *state, uint16_t fault_code);
 void robot_state_set_degraded(robot_state_t *state, uint16_t flag, bool active);
 

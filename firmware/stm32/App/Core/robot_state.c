@@ -52,9 +52,9 @@ void robot_state_enter_estop(robot_state_t *state, uint16_t reason) {
 }
 
 bool robot_state_clear_estop(robot_state_t *state, bool link_healthy,
-                             bool button_released, bool local_confirm) {
+                             bool button_released, bool operator_confirm) {
     if (state == NULL || state->value != ROBOT_STATE_ESTOP || !link_healthy ||
-        !button_released || !local_confirm) {
+        !button_released || !operator_confirm) {
         return false;
     }
     state->value = ROBOT_STATE_IDLE;

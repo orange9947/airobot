@@ -86,6 +86,41 @@ class StmSimulatorTests(unittest.TestCase):
         self.assertIn(protocol_ids.MSG_FAULT_EVENT, response_types)
         self.assertEqual(self.h.sim.state, protocol_ids.ROBOTSTATE_ESTOP)
 
+    def test_clear_estop_requires_estop_and_healthy_session(self):
+        self.h.transact(protocol_ids.MSG_CLEAR_ESTOP, (40,))
+        nack = self.h.poll()
+        self.assertEqual(nack["type"], protocol_ids.MSG_NACK)
+
+        self.h.sim.state = protocol_ids.ROBOTSTATE_ESTOP
+        self.h.sim.fault_code = protocol_ids.ERRORCODE_LINK_LOST
+        self.h.transact(protocol_ids.MSG_CLEAR_ESTOP, (41,))
+        ack = self.h.poll()
+        self.assertEqual(ack["type"], protocol_ids.MSG_ACK)
+        self.assertEqual(self.h.sim.state, protocol_ids.ROBOTSTATE_IDLE)
+        self.assertEqual(self.h.sim.fault_code, 0)
+        self.assertIsNone(self.h.sim.active)
+
+    def test_estop_rejects_expression(self):
+        self.h.sim.state = protocol_ids.ROBOTSTATE_ESTOP
+        self.h.transact(
+            protocol_ids.MSG_SET_EXPRESSION,
+            (42, protocol_ids.EXPRESSION_HAPPY),
+        )
+        nack = self.h.poll()
+        self.assertEqual(nack["type"], protocol_ids.MSG_NACK)
+        values = unpack_payload(nack["type"], nack["payload"])
+        self.assertEqual(values[2], protocol_ids.ERRORCODE_BAD_STATE)
+
+    def test_safety_expressions_are_not_remote_moods(self):
+        self.h.transact(
+            protocol_ids.MSG_SET_EXPRESSION,
+            (43, protocol_ids.EXPRESSION_ESTOP),
+        )
+        nack = self.h.poll()
+        self.assertEqual(nack["type"], protocol_ids.MSG_NACK)
+        values = unpack_payload(nack["type"], nack["payload"])
+        self.assertEqual(values[2], protocol_ids.ERRORCODE_BAD_PAYLOAD)
+
     def test_bad_slot_is_counted_and_next_transaction_recovers(self):
         bad = bytearray(self.h.slot(protocol_ids.MSG_NOOP))
         bad[-1] ^= 1

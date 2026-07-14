@@ -82,6 +82,12 @@
               <div><dt>活动任务</dt><dd id="active-task">无</dd></div>
               <div><dt>故障码</dt><dd id="fault-code">0</dd></div>
             </dl>
+            <div class="estop-recovery hidden" id="estop-recovery">
+              <div><strong>机器人处于急停</strong><span>确认周围安全后可恢复待机</span></div>
+              <button class="recovery-command" id="clear-estop-button" type="button">
+                <img src="/assets/icons/shield-check.svg" alt=""><span>解除急停</span>
+              </button>
+            </div>
           </section>
 
           <section class="panel motion-panel">
@@ -181,7 +187,8 @@
       <p class="eyebrow" id="auth-eyebrow">LOCAL DEVICE</p>
       <h2 id="auth-title">登录机器人</h2>
       <label><span>管理密码</span><input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label>
-      <button class="primary-command" type="submit"><img src="/assets/icons/power.svg" alt=""><span id="auth-submit-label">进入控制台</span></button>
+      <p class="auth-status" id="auth-status" aria-live="polite"></p>
+      <button class="primary-command" type="submit"><img id="auth-submit-icon" src="/assets/icons/power.svg" alt=""><span id="auth-submit-label">进入控制台</span></button>
       <p class="form-error" id="auth-error"></p>
     </form>
   </div>
@@ -195,6 +202,19 @@
       <div class="confirm-actions">
         <button class="secondary-command" id="clear-chat-cancel" type="button">取消</button>
         <button class="danger-command" id="clear-chat-confirm" type="button">确认清除</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="confirm-layer hidden" id="clear-estop-layer" aria-hidden="true">
+    <section class="confirm-dialog" id="clear-estop-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-estop-title" aria-describedby="clear-estop-description">
+      <p class="eyebrow">SAFETY / RECOVERY</p>
+      <h2 id="clear-estop-title">解除急停？</h2>
+      <p class="confirm-description" id="clear-estop-description">请确认机器人周围安全且车轮没有受阻。解除后机器人仅回到待机，不会自动恢复动作。</p>
+      <p class="form-error" id="clear-estop-error"></p>
+      <div class="confirm-actions">
+        <button class="secondary-command" id="clear-estop-cancel" type="button">取消</button>
+        <button class="primary-command" id="clear-estop-confirm" type="button">确认解除</button>
       </div>
     </section>
   </div>

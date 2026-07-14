@@ -5,6 +5,11 @@
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
   const demoMode = new URLSearchParams(location.search).get("demo") === "1";
   const mobileNavigation = window.matchMedia("(max-width: 980px)");
+  const AUTH_READY = "ready";
+  const AUTH_VERIFYING = "verifying";
+  const AUTH_LOADING = "loading";
+  const AUTH_LOAD_ERROR = "load_error";
+  const AUTH_TIMEOUT_MS = 20000;
   const state = {
     csrf: "",
     config: null,
@@ -14,6 +19,9 @@
     authenticated: demoMode,
     busy: false,
     clearContextBusy: false,
+    clearEstopBusy: false,
+    authPhase: AUTH_READY,
+    authSetupRequired: false,
   };
 
   const stateNames = {
@@ -108,8 +116,14 @@
     let payload = {};
     try { payload = await response.json(); } catch (_error) { /* Empty response. */ }
     if (!response.ok) {
-      if (response.status === 401) showAuth(false);
-      throw new Error(payload.error || `请求失败 (${response.status})`);
+      if (response.status === 401 && path !== "/api/v1/session/login") {
+        state.authenticated = false;
+        state.csrf = "";
+        showAuth(false);
+      }
+      const error = new Error(payload.error || `请求失败 (${response.status})`);
+      error.status = response.status;
+      throw error;
     }
     return payload;
   }
@@ -147,13 +161,38 @@
     return { ok: true, csrf: "demo" };
   }
 
+  function setAuthPhase(phase, message) {
+    const form = $("#auth-form");
+    const input = $("#auth-password");
+    const button = $("#auth-form button[type=submit]");
+    const icon = $("#auth-submit-icon");
+    const busy = phase === AUTH_VERIFYING || phase === AUTH_LOADING;
+    state.authPhase = phase;
+    form.setAttribute("aria-busy", busy ? "true" : "false");
+    input.disabled = busy || (phase === AUTH_LOAD_ERROR && state.authenticated);
+    button.disabled = busy;
+    icon.src = busy ? "/assets/icons/refresh-cw.svg" : "/assets/icons/power.svg";
+    icon.classList.toggle("spinning", busy);
+    if (phase === AUTH_VERIFYING) {
+      $("#auth-submit-label").textContent = state.authSetupRequired ? "正在初始化" : "正在验证";
+    } else if (phase === AUTH_LOADING) {
+      $("#auth-submit-label").textContent = "正在加载";
+    } else if (phase === AUTH_LOAD_ERROR) {
+      $("#auth-submit-label").textContent = "重新连接";
+    } else {
+      $("#auth-submit-label").textContent = state.authSetupRequired ? "完成初始化" : "进入控制台";
+    }
+    $("#auth-status").textContent = message || "";
+  }
+
   function showAuth(setupRequired) {
     if (demoMode) return;
+    state.authSetupRequired = Boolean(setupRequired);
     $("#auth-title").textContent = setupRequired ? "设置管理密码" : "登录机器人";
     $("#auth-eyebrow").textContent = setupRequired ? "FIRST BOOT" : "LOCAL DEVICE";
-    $("#auth-submit-label").textContent = setupRequired ? "完成初始化" : "进入控制台";
     $("#auth-password").autocomplete = setupRequired ? "new-password" : "current-password";
     $("#auth-layer").classList.remove("hidden");
+    setAuthPhase(AUTH_READY, "");
     $("#auth-password").focus();
   }
 
@@ -161,6 +200,17 @@
     $("#auth-layer").classList.add("hidden");
     $("#auth-error").textContent = "";
     $("#auth-password").value = "";
+    setAuthPhase(AUTH_READY, "");
+  }
+
+  async function withTimeout(callback) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+    try {
+      return await callback(controller.signal);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   function syncNavigationMode() {
@@ -254,6 +304,51 @@
     }
   }
 
+  function openClearEstopDialog() {
+    const status = state.status || {};
+    if (state.clearEstopBusy || !status.connected || status.state_name !== "estop") return;
+    $("#clear-estop-error").textContent = "";
+    $("#clear-estop-layer").classList.remove("hidden");
+    $("#clear-estop-layer").setAttribute("aria-hidden", "false");
+    $("#clear-estop-cancel").focus();
+  }
+
+  function closeClearEstopDialog() {
+    if (state.clearEstopBusy) return;
+    $("#clear-estop-layer").classList.add("hidden");
+    $("#clear-estop-layer").setAttribute("aria-hidden", "true");
+    $("#clear-estop-error").textContent = "";
+    $("#clear-estop-button").focus();
+  }
+
+  async function clearEstop() {
+    if (state.clearEstopBusy) return;
+    const cancelButton = $("#clear-estop-cancel");
+    const confirmButton = $("#clear-estop-confirm");
+    state.clearEstopBusy = true;
+    cancelButton.disabled = true;
+    confirmButton.disabled = true;
+    $("#clear-estop-error").textContent = "";
+    let cleared = false;
+    try {
+      await api("/api/v1/estop/clear", { method: "POST", body: {} });
+      cleared = true;
+    } catch (error) {
+      $("#clear-estop-error").textContent = error.message;
+      toast(error.message, true);
+    } finally {
+      state.clearEstopBusy = false;
+      cancelButton.disabled = false;
+      confirmButton.disabled = false;
+    }
+    if (cleared) {
+      closeClearEstopDialog();
+      await refreshStatus(true);
+      addEvent("SAFETY", "急停已解除，机器人回到待机");
+      toast("急停已解除");
+    }
+  }
+
   function selectedModeName(status) {
     return { 2: "idle", 3: "manual", 4: "ai" }[status.selected_mode] || status.state_name || "idle";
   }
@@ -279,6 +374,7 @@
     const network = status.network || {};
     const modeName = selectedModeName(status);
     const manualEnabled = connected && modeName === "manual" && !["estop", "fault"].includes(stateName);
+    const estopRecoveryAvailable = connected && stateName === "estop";
 
     $("#state-code").textContent = stateLabel;
     $("#oled-label").textContent = stateLabel;
@@ -297,16 +393,18 @@
     $("#link-state").classList.toggle("fault", !connected);
     $("#link-state span").textContent = connected ? "设备在线" : "设备离线";
     $("#motion-lock").textContent = manualEnabled ? "可执行有限步运动" : `${stateNames[modeName] || modeName.toUpperCase()} 模式已锁定`;
+    $("#estop-recovery").classList.toggle("hidden", !estopRecoveryAvailable);
+    $("#clear-estop-button").disabled = !estopRecoveryAvailable;
     $$("[data-direction]").forEach((button) => { button.disabled = !manualEnabled; });
     $$("[data-mode]").forEach((button) => button.classList.toggle("active", button.dataset.mode === modeName));
     $("#chat-provider").textContent = status.provider === "openai" ? "OpenAI" : "DeepSeek";
     $("#chat-model").textContent = status.model || "未配置";
   }
 
-  async function refreshStatus(quiet) {
+  async function refreshStatus(quiet, signal, raiseError) {
     if (!state.authenticated) return;
     try {
-      const status = await api("/api/v1/status");
+      const status = await api("/api/v1/status", { signal });
       renderStatus(status);
       if (!quiet) addEvent("STATUS", "设备状态已刷新");
       return status;
@@ -314,6 +412,7 @@
       $("#link-state").classList.add("offline");
       $("#link-state span").textContent = "连接失败";
       if (!quiet) toast(error.message, true);
+      if (raiseError) throw error;
     }
   }
 
@@ -340,10 +439,69 @@
     updateStepEstimate();
   }
 
-  async function loadConfig() {
-    const config = await api("/api/v1/config");
+  async function loadConfig(signal) {
+    const config = await api("/api/v1/config", { signal });
     fillSettings(config);
     return config;
+  }
+
+  async function loadAuthenticatedConsole() {
+    setAuthPhase(AUTH_LOADING, "正在读取机器人配置与状态...");
+    const [config, status] = await withTimeout((signal) => Promise.all([
+      loadConfig(signal),
+      refreshStatus(true, signal, true),
+    ]));
+    if (status && status.network && status.network.mode === "access_point" && config.wifi && !config.wifi.ssid) {
+      switchView("settings");
+    }
+    connectEvents();
+    addEvent("SESSION", "控制台已连接");
+    hideAuth();
+  }
+
+  async function submitAuthentication() {
+    if (state.authPhase === AUTH_VERIFYING || state.authPhase === AUTH_LOADING) return;
+    $("#auth-error").textContent = "";
+    let loginAccepted = state.authenticated;
+    try {
+      if (!state.authenticated) {
+        setAuthPhase(
+          AUTH_VERIFYING,
+          state.authSetupRequired ? "正在创建本地管理凭据..." : "正在安全验证管理密码..."
+        );
+        const result = await withTimeout((signal) => api("/api/v1/session/login", {
+          method: "POST",
+          body: { password: $("#auth-password").value },
+          signal,
+        }));
+        state.csrf = result.csrf;
+        state.authenticated = true;
+        loginAccepted = true;
+        $("#auth-password").value = "";
+      }
+      await loadAuthenticatedConsole();
+    } catch (error) {
+      let message;
+      if (error.name === "AbortError") {
+        message = "连接超时，请检查网络后重试";
+      } else if (error.status === 401 && !loginAccepted) {
+        message = "密码不正确";
+      } else if (error.status === 401) {
+        message = "登录会话已失效，请重新输入密码";
+      } else if (error.status === 409) {
+        message = "认证正在处理中，请稍后重试";
+      } else if (state.authenticated) {
+        message = "登录成功，但设备状态加载失败，请重新连接";
+      } else {
+        message = "连接失败，请检查网络后重试";
+      }
+      $("#auth-error").textContent = message;
+      setAuthPhase(state.authenticated ? AUTH_LOAD_ERROR : AUTH_READY, "");
+      if (!state.authenticated) {
+        $("#auth-password").focus();
+        $("#auth-password").select();
+      }
+    }
   }
 
   function connectEvents() {
@@ -421,14 +579,17 @@
     $("#nav-backdrop").addEventListener("click", () => closeNavigation(true));
     document.addEventListener("keydown", (event) => {
       const clearDialogOpen = !$("#clear-chat-layer").classList.contains("hidden");
-      if (event.key === "Escape" && clearDialogOpen) {
-        closeClearChatDialog();
+      const estopDialogOpen = !$("#clear-estop-layer").classList.contains("hidden");
+      const dialogOpen = clearDialogOpen || estopDialogOpen;
+      const first = clearDialogOpen ? $("#clear-chat-cancel") : $("#clear-estop-cancel");
+      const last = clearDialogOpen ? $("#clear-chat-confirm") : $("#clear-estop-confirm");
+      if (event.key === "Escape" && dialogOpen) {
+        if (clearDialogOpen) closeClearChatDialog();
+        else closeClearEstopDialog();
         return;
       }
       if (event.key === "Escape") closeNavigation(true);
-      if (event.key === "Tab" && clearDialogOpen) {
-        const first = $("#clear-chat-cancel");
-        const last = $("#clear-chat-confirm");
+      if (event.key === "Tab" && dialogOpen) {
         if (event.shiftKey && document.activeElement === first) {
           event.preventDefault();
           last.focus();
@@ -456,21 +617,16 @@
     $("#clear-chat-layer").addEventListener("click", (event) => {
       if (event.target === event.currentTarget) closeClearChatDialog();
     });
+    $("#clear-estop-button").addEventListener("click", openClearEstopDialog);
+    $("#clear-estop-cancel").addEventListener("click", closeClearEstopDialog);
+    $("#clear-estop-confirm").addEventListener("click", clearEstop);
+    $("#clear-estop-layer").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closeClearEstopDialog();
+    });
 
     $("#auth-form").addEventListener("submit", async (event) => {
       event.preventDefault();
-      try {
-        const result = await api("/api/v1/session/login", { method: "POST", body: { password: $("#auth-password").value } });
-        state.csrf = result.csrf;
-        state.authenticated = true;
-        hideAuth();
-        const [config, status] = await Promise.all([loadConfig(), refreshStatus(true)]);
-        if (status && status.network && status.network.mode === "access_point" && config.wifi && !config.wifi.ssid) {
-          switchView("settings");
-        }
-        connectEvents();
-        addEvent("SESSION", "控制台已连接");
-      } catch (error) { $("#auth-error").textContent = error.message; }
+      await submitAuthentication();
     });
 
     $("#logout-button").addEventListener("click", async () => {

@@ -30,6 +30,10 @@ class FakeDevice:
         self.calls.append(("stop",))
         return 12
 
+    async def clear_estop(self):
+        self.calls.append(("clear_estop",))
+        return 13
+
 
 class FakeLlm:
     def __init__(self):
@@ -142,6 +146,24 @@ class WebServiceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(payload["ok"])
             self.assertEqual(self.web.llm.clear_count, 1)
+
+        asyncio.run(scenario())
+
+    def test_clear_estop_requires_csrf_and_dispatches_once(self):
+        headers = self.login_headers()
+
+        async def scenario():
+            with self.assertRaisesRegex(ApiError, "CSRF"):
+                await self.web.dispatch_api(
+                    "POST", "/api/v1/estop/clear", {"cookie": headers["cookie"]}, b"{}"
+                )
+            status, payload, _extra = await self.web.dispatch_api(
+                "POST", "/api/v1/estop/clear", headers, b"{}"
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["command_id"], 13)
+            self.assertEqual(self.device.calls.count(("clear_estop",)), 1)
 
         asyncio.run(scenario())
 

@@ -41,6 +41,12 @@ class FakeDevice:
         return {"ok": True, "left_steps": left, "right_steps": right}
 
 
+class FailingExpressionDevice(FakeDevice):
+    async def set_expression(self, expression):
+        self.calls.append(("expression", expression))
+        raise RuntimeError("STM32 rejected command: 5")
+
+
 class LlmServiceTests(unittest.TestCase):
     def test_parse_url(self):
         self.assertEqual(
@@ -180,6 +186,38 @@ class LlmServiceTests(unittest.TestCase):
                 openai_input = client.requests[1][1]["input"]
                 self.assertEqual([item["role"] for item in openai_input], ["system", "user"])
                 self.assertEqual(openai_input[-1]["content"], "second")
+
+        asyncio.run(scenario())
+
+    def test_tool_device_failure_is_returned_to_model(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as root:
+                config = ConfigService(root)
+                config.load()
+                config.set_provider_key("deepseek", "key")
+                first_call = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call-failed",
+                        "type": "function",
+                        "function": {
+                            "name": "robot_set_expression",
+                            "arguments": "{\"expression\":\"happy\"}",
+                        },
+                    }],
+                }
+                client = FakeHttpClient([
+                    {"choices": [{"message": first_call}]},
+                    {"choices": [{"message": {"role": "assistant", "content": "The expression could not be changed."}}]},
+                ])
+                service = LlmService(config, FailingExpressionDevice(), client)
+                result = await service.chat("smile")
+                self.assertIn("could not", result["text"])
+                tool_message = client.requests[1][1]["messages"][-1]
+                self.assertEqual(tool_message["role"], "tool")
+                self.assertIn('"ok": false', tool_message["content"])
+                self.assertIn("STM32 rejected", tool_message["content"])
 
         asyncio.run(scenario())
 

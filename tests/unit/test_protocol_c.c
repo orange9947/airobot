@@ -13,6 +13,13 @@ static int test_crc(void) {
     return 0;
 }
 
+static int test_clear_estop_layout(void) {
+    TEST_ASSERT_EQ(0x0206u, ROBOT_MSG_CLEAR_ESTOP);
+    TEST_ASSERT_EQ(4u, ROBOT_PAYLOAD_LEN_CLEAR_ESTOP);
+    TEST_ASSERT_EQ(4u, robot_protocol_payload_length(ROBOT_MSG_CLEAR_ESTOP));
+    return 0;
+}
+
 static int test_decode_golden(void) {
     robot_spi_slot_view_t view;
     TEST_ASSERT_EQ(ROBOT_SLOT_OK,
@@ -68,6 +75,7 @@ static int test_rejects_corruption(void) {
 
 int main(void) {
     TEST_ASSERT_EQ(0, test_crc());
+    TEST_ASSERT_EQ(0, test_clear_estop_layout());
     TEST_ASSERT_EQ(0, test_decode_golden());
     TEST_ASSERT_EQ(0, test_encode_matches_golden());
     TEST_ASSERT_EQ(0, test_rejects_corruption());

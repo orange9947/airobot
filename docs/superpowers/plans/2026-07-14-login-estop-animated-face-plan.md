@@ -11,7 +11,6 @@
 - 修改 `protocol/messages.json`
 - 重新生成 `protocol/generated/protocol_ids.py`
 - 重新生成 `protocol/generated/protocol_ids.h`
-- 重新生成 `protocol/generated/protocol_layouts.py`
 - 重新生成 `protocol/generated/protocol_layouts.h`
 - 重新生成 `protocol/golden/golden_slots.json`
 - 修改 `tests/test_protocol_python.py`

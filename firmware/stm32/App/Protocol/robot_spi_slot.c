@@ -58,6 +58,8 @@ uint16_t robot_protocol_payload_length(uint16_t type) {
             return ROBOT_PAYLOAD_LEN_SET_EXPRESSION;
         case ROBOT_MSG_SET_RUNTIME_CONFIG:
             return ROBOT_PAYLOAD_LEN_SET_RUNTIME_CONFIG;
+        case ROBOT_MSG_CLEAR_ESTOP:
+            return ROBOT_PAYLOAD_LEN_CLEAR_ESTOP;
         case ROBOT_MSG_ACK:
             return ROBOT_PAYLOAD_LEN_ACK;
         case ROBOT_MSG_NACK:

@@ -236,13 +236,34 @@ static void handle_expression(const robot_spi_slot_view_t *slot) {
     if (replay_duplicate(slot->type, id, slot->seq)) {
         return;
     }
-    if (expression > ROBOT_EXPRESSION_FAULT) {
+    if (app.state.value == ROBOT_STATE_ESTOP || app.state.value == ROBOT_STATE_FAULT) {
+        error = ROBOT_ERRORCODE_BAD_STATE;
+    } else if (expression > ROBOT_EXPRESSION_SLEEPY) {
         error = ROBOT_ERRORCODE_BAD_PAYLOAD;
     } else {
         app.expression = expression;
-        ui_service_set_expression(&app.ui, expression);
+        ui_service_set_expression(&app.ui, expression, board_millis());
     }
     finish_command(slot->type, id, slot->seq, error);
+}
+
+static void handle_clear_estop(const robot_spi_slot_view_t *slot) {
+    uint32_t id = command_id(slot);
+    uint16_t error = ROBOT_ERRORCODE_BAD_STATE;
+    if (replay_duplicate(slot->type, id, slot->seq)) {
+        return;
+    }
+    if (!app.motion.active &&
+        robot_state_clear_estop(&app.state, app.safety.link_healthy, true, true)) {
+        app.expression = ROBOT_EXPRESSION_NEUTRAL;
+        ui_service_set_expression(&app.ui, ROBOT_EXPRESSION_NEUTRAL, board_millis());
+        input_policy_sync_mode(&app.input_policy, ROBOT_STATE_IDLE);
+        error = ROBOT_ERRORCODE_OK;
+    }
+    finish_command(slot->type, id, slot->seq, error);
+    if (error == ROBOT_ERRORCODE_OK) {
+        queue_mode_changed(3u);
+    }
 }
 
 static void handle_runtime_config(const robot_spi_slot_view_t *slot) {
@@ -292,6 +313,9 @@ static void route_slot(const robot_spi_slot_view_t *slot, uint32_t now_ms) {
             break;
         case ROBOT_MSG_SET_RUNTIME_CONFIG:
             handle_runtime_config(slot);
+            break;
+        case ROBOT_MSG_CLEAR_ESTOP:
+            handle_clear_estop(slot);
             break;
         default:
             queue_nack(slot->seq, command_id(slot), ROBOT_ERRORCODE_BAD_MESSAGE);
@@ -354,7 +378,13 @@ static void handle_encoder_event(void) {
             safety_supervisor_stop(&app.safety, &app.state, SAFETY_REASON_LOCAL_STOP);
             break;
         case INPUT_POLICY_ACTION_CLEAR_ESTOP:
-            (void)robot_state_clear_estop(&app.state, app.safety.link_healthy, true, true);
+            if (robot_state_clear_estop(&app.state, app.safety.link_healthy, true, true)) {
+                app.expression = ROBOT_EXPRESSION_NEUTRAL;
+                ui_service_set_expression(
+                    &app.ui, ROBOT_EXPRESSION_NEUTRAL, board_millis());
+                input_policy_sync_mode(&app.input_policy, ROBOT_STATE_IDLE);
+                queue_mode_changed(2u);
+            }
             break;
         case INPUT_POLICY_ACTION_NONE:
         default:
@@ -380,7 +410,7 @@ bool app_init(void) {
               HAL_GPIO_ReadPin(ENCODER_A_PORT, ENCODER_A_PIN) == GPIO_PIN_SET,
               HAL_GPIO_ReadPin(ENCODER_B_PORT, ENCODER_B_PIN) == GPIO_PIN_SET,
               encoder_switch_high());
-    display_ok = ui_service_init(&app.ui);
+    display_ok = ui_service_init(&app.ui, app.boot_id ^ board_millis());
     flash_ok = w25q_init(&app.flash);
     robot_state_set_degraded(&app.state, DEGRADED_OLED, !display_ok);
     robot_state_set_degraded(&app.state, DEGRADED_FLASH, !flash_ok);

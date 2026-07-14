@@ -39,3 +39,18 @@ target_include_directories(test_robot_core PRIVATE support)
 target_link_libraries(test_robot_core PRIVATE robot_core_host)
 robot_apply_warnings(test_robot_core)
 add_test(NAME robot_core COMMAND test_robot_core)
+
+add_library(face_animator_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Ui/face_animator.c
+)
+target_include_directories(face_animator_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Ui
+  ${PROJECT_SOURCE_DIR}/protocol/generated
+)
+robot_apply_warnings(face_animator_host)
+
+add_executable(test_face_animator unit/test_face_animator.c)
+target_include_directories(test_face_animator PRIVATE support)
+target_link_libraries(test_face_animator PRIVATE face_animator_host)
+robot_apply_warnings(test_face_animator)
+add_test(NAME face_animator COMMAND test_face_animator)

@@ -196,6 +196,21 @@ class DeviceService:
         )
         return command_id
 
+    async def clear_estop(self):
+        command_id = self.next_command_id()
+        await self.command(
+            protocol_ids.MSG_CLEAR_ESTOP,
+            (command_id,),
+            command_id,
+        )
+        self.status.update(
+            state=protocol_ids.ROBOTSTATE_IDLE,
+            selected_mode=protocol_ids.MODE_IDLE,
+            fault_code=0,
+            active_command_id=0,
+        )
+        return command_id
+
     async def set_runtime_config(self, rate, accel, hold_ms):
         command_id = self.next_command_id()
         await self.command(

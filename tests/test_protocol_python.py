@@ -3,6 +3,7 @@ import struct
 import unittest
 from pathlib import Path
 
+from protocol.generated import protocol_ids
 from firmware.esp32.transport.crc16 import crc16_ccitt
 from firmware.esp32.transport.frame_codec import (
     CRC_OFFSET,
@@ -22,6 +23,11 @@ class ProtocolPythonTests(unittest.TestCase):
 
     def test_crc_standard_vector(self):
         self.assertEqual(crc16_ccitt(b"123456789"), 0x29B1)
+
+    def test_clear_estop_command_layout(self):
+        self.assertEqual(protocol_ids.MSG_CLEAR_ESTOP, 0x0206)
+        self.assertEqual(protocol_ids.MESSAGE_FORMATS[protocol_ids.MSG_CLEAR_ESTOP], "<I")
+        self.assertEqual(protocol_ids.MESSAGE_LENGTHS[protocol_ids.MSG_CLEAR_ESTOP], 4)
 
     def test_all_golden_slots_round_trip(self):
         for case in self.golden:

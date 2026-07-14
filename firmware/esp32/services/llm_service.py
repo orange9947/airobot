@@ -65,7 +65,10 @@ class LlmService:
                 return response
             results = []
             for call in turn["tool_calls"]:
-                output = await self.tools.execute(call)
+                try:
+                    output = await self.tools.execute(call)
+                except RuntimeError as exc:
+                    output = {"ok": False, "error": str(exc)[:160]}
                 result = {"call_id": call["id"], "name": call["name"], "output": output}
                 results.append(result)
                 self._emit({"type": "tool", "result": result})
