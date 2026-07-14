@@ -26,15 +26,20 @@ Initial bus settings: Mode 0, MSB first, 1 MHz, fixed 268-byte transaction.
 | W25Q | MOSI / DI | PB15 |
 | OLED | SDA | PB6 |
 | OLED | SCL | PB7 |
+| EC11 | VCC | 3.3V |
+| EC11 | GND | GND |
 | EC11 | A | PA0 |
 | EC11 | B | PA1 |
-| EC11 | Button C | PA2 |
+| EC11 | Common C | GND |
+| Reserved button | SW | PA2 (not fitted) |
 | Left ULN2003 | IN1-IN4 | PA8, PA9, PA10, PA11 |
 | Right ULN2003 | IN1-IN4 | PB0, PB1, PB10, PB11 |
 | ST-Link | SWDIO | PA13 |
 | ST-Link | SWCLK | PA14 |
 
 PB6 is intentionally SDA and PB7 is intentionally SCL. The firmware uses software I2C because this is the reverse of the STM32F1 hardware I2C1 default mapping.
+
+The current EC11 has no push switch. Each detent changes mode immediately. PA2 remains pulled up and ignored until a separate button is fitted and `BOARD_ENCODER_BUTTON_PRESENT` is enabled.
 
 ## Power
 

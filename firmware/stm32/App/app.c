@@ -6,6 +6,7 @@
 #include "board.h"
 #include "board_pins.h"
 #include "ec11.h"
+#include "input_policy.h"
 #include "motion_service.h"
 #include "protocol_ids.h"
 #include "protocol_layouts.h"
@@ -35,13 +36,13 @@ typedef struct {
     safety_supervisor_t safety;
     motion_service_t motion;
     ec11_t encoder;
+    input_policy_t input_policy;
     ui_service_t ui;
     w25q_t flash;
     spi_mailbox_t mailbox;
     dedup_entry_t dedup[DEDUP_CAPACITY];
     uint8_t dedup_next;
     volatile ec11_event_t encoder_event;
-    robot_state_value_t candidate_mode;
     uint16_t soft_rate_sps;
     uint16_t soft_accel_sps2;
     uint16_t hold_ms;
@@ -122,7 +123,7 @@ static void queue_state_snapshot(void) {
     robot_write_u32_le(&payload[0], app.boot_id);
     robot_write_u32_le(&payload[4], board_millis());
     payload[8] = (uint8_t)app.state.value;
-    payload[9] = (uint8_t)app.candidate_mode;
+    payload[9] = (uint8_t)app.input_policy.candidate_mode;
     robot_write_u16_le(&payload[10], app.state.degraded_flags);
     robot_write_u16_le(&payload[12], app.state.fault_code);
     robot_write_u32_le(&payload[14], app.motion.active ? app.motion.command_id : 0u);
@@ -180,7 +181,7 @@ static void handle_set_mode(const robot_spi_slot_view_t *slot) {
         error = ROBOT_ERRORCODE_BAD_STATE;
     } else {
         stop_motion(MOTION_RESULT_ABORTED);
-        app.candidate_mode = mode;
+        input_policy_sync_mode(&app.input_policy, mode);
     }
     finish_command(slot->type, id, slot->seq, error);
     if (error == ROBOT_ERRORCODE_OK) {
@@ -327,36 +328,37 @@ static void report_motion_result(void) {
     }
 }
 
-static robot_state_value_t rotate_mode(robot_state_value_t mode, bool clockwise) {
-    if (clockwise) {
-        return mode == ROBOT_STATE_IDLE ? ROBOT_STATE_MANUAL
-             : mode == ROBOT_STATE_MANUAL ? ROBOT_STATE_AI
-                                           : ROBOT_STATE_IDLE;
-    }
-    return mode == ROBOT_STATE_IDLE ? ROBOT_STATE_AI
-         : mode == ROBOT_STATE_AI ? ROBOT_STATE_MANUAL
-                                  : ROBOT_STATE_IDLE;
+static bool encoder_switch_high(void) {
+#if BOARD_ENCODER_BUTTON_PRESENT
+    return HAL_GPIO_ReadPin(ENCODER_SW_PORT, ENCODER_SW_PIN) == GPIO_PIN_SET;
+#else
+    return true;
+#endif
 }
 
 static void handle_encoder_event(void) {
     ec11_event_t event = app.encoder_event;
+    input_policy_action_t action;
     app.encoder_event = EC11_EVENT_NONE;
-    if (event == EC11_EVENT_CLOCKWISE || event == EC11_EVENT_COUNTERCLOCKWISE) {
-        app.candidate_mode = rotate_mode(app.candidate_mode, event == EC11_EVENT_CLOCKWISE);
-        return;
-    }
-    if (event == EC11_EVENT_LONG_PRESS) {
-        stop_motion(MOTION_RESULT_ABORTED);
-        safety_supervisor_stop(&app.safety, &app.state, SAFETY_REASON_LOCAL_STOP);
-        return;
-    }
-    if (event == EC11_EVENT_SHORT_PRESS) {
-        if (app.state.value == ROBOT_STATE_ESTOP) {
-            (void)robot_state_clear_estop(&app.state, app.safety.link_healthy, true, true);
-        } else if (robot_state_request_mode(&app.state, app.candidate_mode)) {
+    action = input_policy_handle(&app.input_policy, event, app.state.value);
+    switch (action.type) {
+        case INPUT_POLICY_ACTION_SET_MODE:
+            if (robot_state_request_mode(&app.state, action.mode)) {
+                stop_motion(MOTION_RESULT_ABORTED);
+                input_policy_sync_mode(&app.input_policy, action.mode);
+                queue_mode_changed(2u);
+            }
+            break;
+        case INPUT_POLICY_ACTION_ESTOP:
             stop_motion(MOTION_RESULT_ABORTED);
-            queue_mode_changed(2u);
-        }
+            safety_supervisor_stop(&app.safety, &app.state, SAFETY_REASON_LOCAL_STOP);
+            break;
+        case INPUT_POLICY_ACTION_CLEAR_ESTOP:
+            (void)robot_state_clear_estop(&app.state, app.safety.link_healthy, true, true);
+            break;
+        case INPUT_POLICY_ACTION_NONE:
+        default:
+            break;
     }
 }
 
@@ -369,14 +371,15 @@ bool app_init(void) {
     app.soft_accel_sps2 = 600u;
     app.hold_ms = 200u;
     app.expression = ROBOT_EXPRESSION_NEUTRAL;
-    app.candidate_mode = ROBOT_STATE_IDLE;
     robot_state_init(&app.state);
+    input_policy_init(&app.input_policy, BOARD_ENCODER_BUTTON_PRESENT != 0,
+                      ROBOT_STATE_IDLE);
     safety_supervisor_init(&app.safety);
     motion_service_init(&app.motion, uln2003_hw_apply, NULL);
     ec11_init(&app.encoder,
               HAL_GPIO_ReadPin(ENCODER_A_PORT, ENCODER_A_PIN) == GPIO_PIN_SET,
               HAL_GPIO_ReadPin(ENCODER_B_PORT, ENCODER_B_PIN) == GPIO_PIN_SET,
-              HAL_GPIO_ReadPin(ENCODER_SW_PORT, ENCODER_SW_PIN) == GPIO_PIN_SET);
+              encoder_switch_high());
     display_ok = ui_service_init(&app.ui);
     flash_ok = w25q_init(&app.flash);
     robot_state_set_degraded(&app.state, DEGRADED_OLED, !display_ok);
@@ -394,7 +397,7 @@ void app_timer_1ms_isr(void) {
         &app.encoder,
         HAL_GPIO_ReadPin(ENCODER_A_PORT, ENCODER_A_PIN) == GPIO_PIN_SET,
         HAL_GPIO_ReadPin(ENCODER_B_PORT, ENCODER_B_PIN) == GPIO_PIN_SET,
-        HAL_GPIO_ReadPin(ENCODER_SW_PORT, ENCODER_SW_PIN) == GPIO_PIN_SET);
+        encoder_switch_high());
     if (event == EC11_EVENT_LONG_PRESS || app.encoder_event == EC11_EVENT_NONE) {
         app.encoder_event = event;
     }

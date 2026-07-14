@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "ec11.h"
+#include "input_policy.h"
 #include "motion_service.h"
 #include "robot_state.h"
 #include "safety_supervisor.h"
@@ -96,9 +97,61 @@ static int test_encoder(void) {
     return 0;
 }
 
+static int test_input_policy_without_button(void) {
+    input_policy_t policy;
+    input_policy_action_t action;
+
+    input_policy_init(&policy, false, ROBOT_STATE_IDLE);
+
+    action = input_policy_handle(&policy, EC11_EVENT_CLOCKWISE, ROBOT_STATE_IDLE);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_SET_MODE, action.type);
+    TEST_ASSERT_EQ(ROBOT_STATE_MANUAL, action.mode);
+
+    action = input_policy_handle(&policy, EC11_EVENT_CLOCKWISE, ROBOT_STATE_MANUAL);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_SET_MODE, action.type);
+    TEST_ASSERT_EQ(ROBOT_STATE_AI, action.mode);
+
+    action = input_policy_handle(&policy, EC11_EVENT_COUNTERCLOCKWISE, ROBOT_STATE_AI);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_SET_MODE, action.type);
+    TEST_ASSERT_EQ(ROBOT_STATE_MANUAL, action.mode);
+
+    action = input_policy_handle(&policy, EC11_EVENT_SHORT_PRESS, ROBOT_STATE_MANUAL);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_NONE, action.type);
+    action = input_policy_handle(&policy, EC11_EVENT_LONG_PRESS, ROBOT_STATE_MANUAL);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_NONE, action.type);
+    action = input_policy_handle(&policy, EC11_EVENT_CLOCKWISE, ROBOT_STATE_ESTOP);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_NONE, action.type);
+    return 0;
+}
+
+static int test_input_policy_with_button(void) {
+    input_policy_t policy;
+    input_policy_action_t action;
+
+    input_policy_init(&policy, true, ROBOT_STATE_IDLE);
+    action = input_policy_handle(&policy, EC11_EVENT_CLOCKWISE, ROBOT_STATE_IDLE);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_NONE, action.type);
+    TEST_ASSERT_EQ(ROBOT_STATE_MANUAL, policy.candidate_mode);
+
+    action = input_policy_handle(&policy, EC11_EVENT_SHORT_PRESS, ROBOT_STATE_IDLE);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_SET_MODE, action.type);
+    TEST_ASSERT_EQ(ROBOT_STATE_MANUAL, action.mode);
+
+    input_policy_sync_mode(&policy, ROBOT_STATE_MANUAL);
+    TEST_ASSERT_EQ(ROBOT_STATE_MANUAL, policy.candidate_mode);
+
+    action = input_policy_handle(&policy, EC11_EVENT_LONG_PRESS, ROBOT_STATE_MANUAL);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_ESTOP, action.type);
+    action = input_policy_handle(&policy, EC11_EVENT_SHORT_PRESS, ROBOT_STATE_ESTOP);
+    TEST_ASSERT_EQ(INPUT_POLICY_ACTION_CLEAR_ESTOP, action.type);
+    return 0;
+}
+
 int main(void) {
     TEST_ASSERT_EQ(0, test_state_and_safety());
     TEST_ASSERT_EQ(0, test_motion());
     TEST_ASSERT_EQ(0, test_encoder());
+    TEST_ASSERT_EQ(0, test_input_policy_without_button());
+    TEST_ASSERT_EQ(0, test_input_policy_with_button());
     return 0;
 }

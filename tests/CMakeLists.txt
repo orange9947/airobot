@@ -24,6 +24,7 @@ add_library(robot_core_host STATIC
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Safety/safety_supervisor.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Motion/motion_service.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Input/ec11.c
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Input/input_policy.c
 )
 target_include_directories(robot_core_host PUBLIC
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Core

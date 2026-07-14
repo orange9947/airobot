@@ -35,6 +35,7 @@ set(APP_SOURCES
   App/Safety/safety_supervisor.c
   App/Motion/motion_service.c
   App/Input/ec11.c
+  App/Input/input_policy.c
   App/Ui/ui_service.c
   App/Protocol/robot_crc16.c
   App/Protocol/robot_spi_slot.c
