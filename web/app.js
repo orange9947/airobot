@@ -13,6 +13,7 @@
     websocket: null,
     authenticated: demoMode,
     busy: false,
+    clearContextBusy: false,
   };
 
   const stateNames = {
@@ -209,6 +210,50 @@
     closeNavigation(true);
   }
 
+  function openClearChatDialog() {
+    if (state.clearContextBusy || state.busy) return;
+    $("#clear-chat-error").textContent = "";
+    $("#clear-chat-layer").classList.remove("hidden");
+    $("#clear-chat-layer").setAttribute("aria-hidden", "false");
+    $("#clear-chat-cancel").focus();
+  }
+
+  function closeClearChatDialog() {
+    if (state.clearContextBusy) return;
+    $("#clear-chat-layer").classList.add("hidden");
+    $("#clear-chat-layer").setAttribute("aria-hidden", "true");
+    $("#clear-chat-error").textContent = "";
+    $("#clear-chat-context").focus();
+  }
+
+  async function clearChatContext() {
+    if (state.clearContextBusy) return;
+    const cancelButton = $("#clear-chat-cancel");
+    const confirmButton = $("#clear-chat-confirm");
+    state.clearContextBusy = true;
+    cancelButton.disabled = true;
+    confirmButton.disabled = true;
+    $("#clear-chat-error").textContent = "";
+    let cleared = false;
+    try {
+      await api("/api/v1/chat", { method: "DELETE", body: {} });
+      $("#chat-stream").innerHTML = "";
+      appendMessage("assistant", "新的对话已开始。");
+      cleared = true;
+    } catch (error) {
+      $("#clear-chat-error").textContent = error.message;
+      toast(error.message, true);
+    } finally {
+      state.clearContextBusy = false;
+      cancelButton.disabled = false;
+      confirmButton.disabled = false;
+    }
+    if (cleared) {
+      closeClearChatDialog();
+      toast("上下文已清除");
+    }
+  }
+
   function selectedModeName(status) {
     return { 2: "idle", 3: "manual", 4: "ai" }[status.selected_mode] || status.state_name || "idle";
   }
@@ -375,7 +420,23 @@
     $("#menu-close").addEventListener("click", () => closeNavigation(true));
     $("#nav-backdrop").addEventListener("click", () => closeNavigation(true));
     document.addEventListener("keydown", (event) => {
+      const clearDialogOpen = !$("#clear-chat-layer").classList.contains("hidden");
+      if (event.key === "Escape" && clearDialogOpen) {
+        closeClearChatDialog();
+        return;
+      }
       if (event.key === "Escape") closeNavigation(true);
+      if (event.key === "Tab" && clearDialogOpen) {
+        const first = $("#clear-chat-cancel");
+        const last = $("#clear-chat-confirm");
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
     });
     if (mobileNavigation.addEventListener) mobileNavigation.addEventListener("change", syncNavigationMode);
     else mobileNavigation.addListener(syncNavigationMode);
@@ -389,6 +450,12 @@
     $("#duration-input").addEventListener("input", updateStepEstimate);
     $("#clear-events").addEventListener("click", () => { state.events = []; renderEvents(); });
     $("#provider-select").addEventListener("change", fillProviderFields);
+    $("#clear-chat-context").addEventListener("click", openClearChatDialog);
+    $("#clear-chat-cancel").addEventListener("click", closeClearChatDialog);
+    $("#clear-chat-confirm").addEventListener("click", clearChatContext);
+    $("#clear-chat-layer").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closeClearChatDialog();
+    });
 
     $("#auth-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -424,6 +491,7 @@
       state.busy = true;
       const button = $("#chat-form button");
       button.disabled = true;
+      $("#clear-chat-context").disabled = true;
       try {
         const result = await api("/api/v1/chat", { method: "POST", body: { message } });
         appendMessage("assistant", result.text || "模型未返回文本");
@@ -432,6 +500,7 @@
       } finally {
         state.busy = false;
         button.disabled = false;
+        $("#clear-chat-context").disabled = false;
         input.focus();
       }
     });

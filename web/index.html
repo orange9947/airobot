@@ -112,7 +112,12 @@
       <section class="view" id="view-chat" aria-labelledby="chat-title">
         <div class="view-heading">
           <div><p class="eyebrow">MODEL / TOOL LOOP</p><h1 id="chat-title">AI 对话</h1></div>
-          <div class="provider-readout"><span id="chat-provider">DeepSeek</span><small id="chat-model">deepseek-chat</small></div>
+          <div class="chat-heading-actions">
+            <div class="provider-readout"><span id="chat-provider">DeepSeek</span><small id="chat-model">deepseek-chat</small></div>
+            <button class="icon-button context-clear-button" id="clear-chat-context" type="button" title="清除上下文" aria-label="清除上下文">
+              <img src="/assets/icons/trash-2.svg" alt="">
+            </button>
+          </div>
         </div>
         <section class="chat-workspace">
           <div class="chat-stream" id="chat-stream" aria-live="polite"></div>
@@ -179,6 +184,19 @@
       <button class="primary-command" type="submit"><img src="/assets/icons/power.svg" alt=""><span id="auth-submit-label">进入控制台</span></button>
       <p class="form-error" id="auth-error"></p>
     </form>
+  </div>
+
+  <div class="confirm-layer hidden" id="clear-chat-layer" aria-hidden="true">
+    <section class="confirm-dialog" id="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-description">
+      <p class="eyebrow">AI / CONTEXT</p>
+      <h2 id="clear-chat-title">清除对话上下文？</h2>
+      <p class="confirm-description" id="clear-chat-description">网页聊天记录和机器人当前会话将被清除，且无法恢复。</p>
+      <p class="form-error" id="clear-chat-error"></p>
+      <div class="confirm-actions">
+        <button class="secondary-command" id="clear-chat-cancel" type="button">取消</button>
+        <button class="danger-command" id="clear-chat-confirm" type="button">确认清除</button>
+      </div>
+    </section>
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite"></div>

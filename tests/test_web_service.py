@@ -32,11 +32,14 @@ class FakeDevice:
 
 
 class FakeLlm:
+    def __init__(self):
+        self.clear_count = 0
+
     async def chat(self, message):
         return {"text": "answer: " + message, "provider": "deepseek"}
 
     def clear(self):
-        pass
+        self.clear_count += 1
 
 
 class FakeNetwork:
@@ -122,6 +125,23 @@ class WebServiceTests(unittest.TestCase):
             self.assertEqual(call[0], "move")
             self.assertEqual(call[1], call[2])
             self.assertLessEqual(call[3], self.config.config["motion"]["soft_rate_sps"])
+
+        asyncio.run(scenario())
+
+    def test_clear_chat_requires_csrf_and_clears_once(self):
+        headers = self.login_headers()
+
+        async def scenario():
+            with self.assertRaisesRegex(ApiError, "CSRF"):
+                await self.web.dispatch_api(
+                    "DELETE", "/api/v1/chat", {"cookie": headers["cookie"]}, b""
+                )
+            status, payload, _extra = await self.web.dispatch_api(
+                "DELETE", "/api/v1/chat", headers, b""
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(self.web.llm.clear_count, 1)
 
         asyncio.run(scenario())
 

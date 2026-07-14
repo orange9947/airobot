@@ -50,10 +50,19 @@ class LlmServiceTests(unittest.TestCase):
 
     def test_openai_tool_call_and_result_shapes(self):
         async def scenario():
+            messages = [{"role": "user", "content": "stop"}]
+            first_output = [
+                {"type": "reasoning", "id": "reasoning-1", "summary": []},
+                {"type": "function_call", "call_id": "call-1", "name": "robot_stop", "arguments": "{}"},
+            ]
+            second_output = [
+                {"type": "function_call", "call_id": "call-2", "name": "robot_set_expression", "arguments": "{\"expression\":\"happy\"}"},
+            ]
             client = FakeHttpClient(
                 [
-                    {"id": "resp-1", "output": [{"type": "function_call", "call_id": "call-1", "name": "robot_stop", "arguments": "{}"}]},
-                    {"id": "resp-2", "output_text": "Stopped."},
+                    {"id": "resp-1", "output": first_output},
+                    {"id": "resp-2", "output": second_output},
+                    {"id": "resp-3", "output_text": "Stopped and smiling."},
                 ]
             )
             provider = OpenAIProvider(
@@ -61,16 +70,33 @@ class LlmServiceTests(unittest.TestCase):
                 {"base_url": "https://api.openai.com", "model": "test-model", "timeout_s": 10, "max_output_tokens": 64},
                 "secret",
             )
-            turn = await provider.create_turn([{"role": "user", "content": "stop"}], TOOL_SCHEMAS)
+            turn = await provider.create_turn(messages, TOOL_SCHEMAS)
             self.assertEqual(turn["tool_calls"][0]["name"], "robot_stop")
-            final = await provider.submit_tool_results(
+            second_turn = await provider.submit_tool_results(
                 turn["continuation"],
                 [{"call_id": "call-1", "output": {"ok": True}}],
                 [],
                 TOOL_SCHEMAS,
             )
-            self.assertEqual(final["text"], "Stopped.")
-            self.assertIn("function_call_output", str(client.requests[1][1]))
+            self.assertEqual(second_turn["tool_calls"][0]["name"], "robot_set_expression")
+            second_payload = client.requests[1][1]
+            self.assertNotIn("previous_response_id", second_payload)
+            self.assertEqual(second_payload["input"][:3], messages + first_output)
+            self.assertEqual(second_payload["input"][-1]["type"], "function_call_output")
+            self.assertEqual(second_payload["input"][-1]["call_id"], "call-1")
+
+            final = await provider.submit_tool_results(
+                second_turn["continuation"],
+                [{"call_id": "call-2", "output": {"ok": True}}],
+                [],
+                TOOL_SCHEMAS,
+            )
+            self.assertEqual(final["text"], "Stopped and smiling.")
+            third_payload = client.requests[2][1]
+            self.assertNotIn("previous_response_id", third_payload)
+            self.assertEqual(third_payload["input"][:3], messages + first_output)
+            self.assertIn(second_output[0], third_payload["input"])
+            self.assertEqual(third_payload["input"][-1]["call_id"], "call-2")
 
         asyncio.run(scenario())
 

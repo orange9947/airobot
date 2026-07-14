@@ -40,6 +40,24 @@ class EspBundleTests(unittest.TestCase):
         self.assertIn('status.network.mode === "access_point"', javascript)
         self.assertIn('!config.wifi.ssid', javascript)
 
+    def test_chat_context_clear_confirmation_contract(self):
+        html = (PROJECT_ROOT / "web" / "index.html").read_text()
+        javascript = (PROJECT_ROOT / "web" / "app.js").read_text()
+
+        for element_id in (
+            "clear-chat-context",
+            "clear-chat-layer",
+            "clear-chat-dialog",
+            "clear-chat-cancel",
+            "clear-chat-confirm",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+        self.assertIn('role="dialog"', html)
+        self.assertIn('aria-modal="true"', html)
+        self.assertIn("function openClearChatDialog", javascript)
+        self.assertIn("function closeClearChatDialog", javascript)
+        self.assertIn('api("/api/v1/chat", { method: "DELETE"', javascript)
+
 
 if __name__ == "__main__":
     unittest.main()
