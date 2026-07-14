@@ -76,6 +76,7 @@ class EspBundleTests(unittest.TestCase):
         self.assertIn("AUTH_VERIFYING", javascript)
         self.assertIn("AUTH_LOADING", javascript)
         self.assertIn("AbortController", javascript)
+        self.assertIn("loadAuthenticatedConsole(result)", javascript)
         self.assertIn('stateName === "estop"', javascript)
         self.assertIn('api("/api/v1/estop/clear"', javascript)
 

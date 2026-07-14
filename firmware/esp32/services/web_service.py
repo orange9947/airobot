@@ -173,7 +173,12 @@ class WebService:
         token = random_token()
         csrf = random_token(16)
         self.sessions[token] = {"csrf": csrf}
-        return 200, {"ok": True, "csrf": csrf}, {
+        return 200, {
+            "ok": True,
+            "csrf": csrf,
+            "config": self.config.public_view(),
+            "status": self._status(),
+        }, {
             "Set-Cookie": "robot_session={}; Path=/; HttpOnly; SameSite=Strict".format(token)
         }
 

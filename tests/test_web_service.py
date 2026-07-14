@@ -96,6 +96,30 @@ class WebServiceTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_login_returns_redacted_initial_console(self):
+        self.config.set_provider_key("deepseek", "provider-secret")
+
+        async def scenario():
+            status, payload, extra = await self.web.dispatch_api(
+                "POST",
+                "/api/v1/session/login",
+                {},
+                json.dumps({"password": "test-password"}).encode(),
+            )
+            self.assertEqual(status, 200)
+            self.assertIn("csrf", payload)
+            self.assertEqual(payload["config"], self.config.public_view())
+            self.assertEqual(payload["status"]["state_name"], "idle")
+            self.assertEqual(payload["status"]["network"]["mode"], "station")
+
+            rendered = json.dumps(payload)
+            session_token = extra["Set-Cookie"].split("=", 1)[1].split(";", 1)[0]
+            self.assertNotIn("wifi-secret", rendered)
+            self.assertNotIn("provider-secret", rendered)
+            self.assertNotIn(session_token, rendered)
+
+        asyncio.run(scenario())
+
     def test_config_redacts_wifi_password_and_api_key(self):
         headers = self.login_headers()
         self.config.set_provider_key("deepseek", "secret-token")

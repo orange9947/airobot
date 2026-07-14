@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "protocol_ids.h"
+#include "status_label.h"
 
 static uint16_t glyph3x5(char character) {
     switch (character) {
@@ -54,11 +55,9 @@ static void draw_face(ui_service_t *ui) {
             ssd1306_pixel(display, (uint8_t)(82u + offset), (uint8_t)(16u + offset), true);
             ssd1306_pixel(display, (uint8_t)(93u - offset), (uint8_t)(16u + offset), true);
         }
-        draw_text(display, 52u, 48u, "STOP");
     } else if (ui->state == ROBOT_STATE_FAULT || ui->expression == ROBOT_EXPRESSION_FAULT) {
         ssd1306_fill_rect(display, 33u, 16u, 14u, 14u, true);
         ssd1306_fill_rect(display, 81u, 16u, 14u, 14u, true);
-        draw_text(display, 56u, 48u, "ERR");
     } else {
         if (pose->blinking || ui->expression == ROBOT_EXPRESSION_SLEEPY) {
             ssd1306_fill_rect(display, left_x, 24u, 16u, 2u, true);
@@ -114,13 +113,10 @@ static void draw_face(ui_service_t *ui) {
             ssd1306_fill_rect(display, (uint8_t)(64u - width / 2u),
                               (uint8_t)(40u + pose->mouth_variant % 2u), width, 2u, true);
         }
-        if (ui->state == ROBOT_STATE_AI) {
-            draw_text(display, 60u, 55u, "AI");
-        } else if (ui->state == ROBOT_STATE_MANUAL) {
-            draw_text(display, 56u, 55u, "MAN");
-        } else {
-            draw_text(display, 56u, 55u, "IDLE");
-        }
+    }
+    status_label_layout_t label;
+    if (status_label_for_state((uint8_t)ui->state, &label)) {
+        draw_text(display, label.x, label.y, label.text);
     }
     ssd1306_fill_rect(display, 2u, 2u, 5u, 5u, ui->link_healthy);
 }

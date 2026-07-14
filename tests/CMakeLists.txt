@@ -54,3 +54,18 @@ target_include_directories(test_face_animator PRIVATE support)
 target_link_libraries(test_face_animator PRIVATE face_animator_host)
 robot_apply_warnings(test_face_animator)
 add_test(NAME face_animator COMMAND test_face_animator)
+
+add_library(status_label_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Ui/status_label.c
+)
+target_include_directories(status_label_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Ui
+  ${PROJECT_SOURCE_DIR}/protocol/generated
+)
+robot_apply_warnings(status_label_host)
+
+add_executable(test_status_label unit/test_status_label.c)
+target_include_directories(test_status_label PRIVATE support)
+target_link_libraries(test_status_label PRIVATE status_label_host)
+robot_apply_warnings(test_status_label)
+add_test(NAME status_label COMMAND test_status_label)

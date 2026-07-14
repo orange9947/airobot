@@ -38,6 +38,7 @@ set(APP_SOURCES
   App/Input/input_policy.c
   App/Ui/ui_service.c
   App/Ui/face_animator.c
+  App/Ui/status_label.c
   App/Protocol/robot_crc16.c
   App/Protocol/robot_spi_slot.c
   Drivers/Display/soft_i2c.c

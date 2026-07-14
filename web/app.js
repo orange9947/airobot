@@ -445,12 +445,21 @@
     return config;
   }
 
-  async function loadAuthenticatedConsole() {
+  async function loadAuthenticatedConsole(initialConsole) {
     setAuthPhase(AUTH_LOADING, "正在读取机器人配置与状态...");
-    const [config, status] = await withTimeout((signal) => Promise.all([
-      loadConfig(signal),
-      refreshStatus(true, signal, true),
-    ]));
+    let config;
+    let status;
+    if (initialConsole && initialConsole.config && initialConsole.status) {
+      config = initialConsole.config;
+      status = initialConsole.status;
+      fillSettings(config);
+      renderStatus(status);
+    } else {
+      [config, status] = await withTimeout((signal) => Promise.all([
+        loadConfig(signal),
+        refreshStatus(true, signal, true),
+      ]));
+    }
     if (status && status.network && status.network.mode === "access_point" && config.wifi && !config.wifi.ssid) {
       switchView("settings");
     }
@@ -478,6 +487,8 @@
         state.authenticated = true;
         loginAccepted = true;
         $("#auth-password").value = "";
+        await loadAuthenticatedConsole(result);
+        return;
       }
       await loadAuthenticatedConsole();
     } catch (error) {
