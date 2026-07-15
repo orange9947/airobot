@@ -47,6 +47,30 @@ python3 tools/deploy_esp32.py --port /dev/ttyACM0
 See [ESP32 setup](docs/esp32/setup.md) for flashing, first boot, provider configuration, and hardware bring-up.
 The web console can be previewed without hardware by serving `web/` and opening `/?demo=1`.
 
+## OLED expression resources
+
+Install the host-only image dependency, regenerate the sample PNGs, and build a validated package:
+
+```bash
+python3 -m pip install -r requirements-tools.txt
+python3 tools/generate_sample_faces.py
+python3 tools/resource_pack.py build \
+  examples/resources/default_faces/manifest.json \
+  build/default-faces.arp
+python3 tools/resource_pack.py verify build/default-faces.arp
+```
+
+The sample contains two weighted clips for each of the six ordinary expressions. Uploads use the authenticated local API and prompt for the administrator password without placing it on the command line:
+
+```bash
+python3 tools/upload_resources.py upload http://ROBOT_IP build/default-faces.arp
+python3 tools/upload_resources.py status http://ROBOT_IP
+```
+
+The current console uses plain HTTP, so the administrator password and session are not encrypted on the network. Only use resource upload on the robot's isolated access point or another trusted private LAN; do not expose port 80 to the Internet.
+
+Before the first hardware upload, disconnect the motor 5 V rail and verify that the STM32 and W25Q 3.3 V supply is stable. A resource update never replaces the active Bank until the new package and commit marker have been verified.
+
 ## Documents
 
 - [System design](docs/superpowers/specs/2026-07-14-desktop-robot-design.md)

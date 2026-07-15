@@ -27,6 +27,7 @@ out/
 *.map
 *.o
 *.d
+*.arp
 
 # Editor and operating system files
 .idea/

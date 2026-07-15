@@ -1,0 +1,124 @@
+{
+  "clips": [
+    {
+      "expression": "NEUTRAL",
+      "weight": 3,
+      "frame_interval_ms": 180,
+      "frames": [
+        "frames/neutral_1_1.png",
+        "frames/neutral_1_2.png",
+        "frames/neutral_1_3.png"
+      ]
+    },
+    {
+      "expression": "NEUTRAL",
+      "weight": 1,
+      "frame_interval_ms": 140,
+      "frames": [
+        "frames/neutral_2_1.png",
+        "frames/neutral_2_2.png",
+        "frames/neutral_2_3.png"
+      ]
+    },
+    {
+      "expression": "HAPPY",
+      "weight": 3,
+      "frame_interval_ms": 120,
+      "frames": [
+        "frames/happy_1_1.png",
+        "frames/happy_1_2.png",
+        "frames/happy_1_3.png"
+      ]
+    },
+    {
+      "expression": "HAPPY",
+      "weight": 1,
+      "frame_interval_ms": 100,
+      "frames": [
+        "frames/happy_2_1.png",
+        "frames/happy_2_2.png",
+        "frames/happy_2_3.png"
+      ]
+    },
+    {
+      "expression": "SAD",
+      "weight": 3,
+      "frame_interval_ms": 180,
+      "frames": [
+        "frames/sad_1_1.png",
+        "frames/sad_1_2.png",
+        "frames/sad_1_3.png"
+      ]
+    },
+    {
+      "expression": "SAD",
+      "weight": 1,
+      "frame_interval_ms": 150,
+      "frames": [
+        "frames/sad_2_1.png",
+        "frames/sad_2_2.png",
+        "frames/sad_2_3.png"
+      ]
+    },
+    {
+      "expression": "THINKING",
+      "weight": 3,
+      "frame_interval_ms": 160,
+      "frames": [
+        "frames/thinking_1_1.png",
+        "frames/thinking_1_2.png",
+        "frames/thinking_1_3.png"
+      ]
+    },
+    {
+      "expression": "THINKING",
+      "weight": 1,
+      "frame_interval_ms": 130,
+      "frames": [
+        "frames/thinking_2_1.png",
+        "frames/thinking_2_2.png",
+        "frames/thinking_2_3.png"
+      ]
+    },
+    {
+      "expression": "SURPRISED",
+      "weight": 3,
+      "frame_interval_ms": 100,
+      "frames": [
+        "frames/surprised_1_1.png",
+        "frames/surprised_1_2.png",
+        "frames/surprised_1_3.png"
+      ]
+    },
+    {
+      "expression": "SURPRISED",
+      "weight": 1,
+      "frame_interval_ms": 80,
+      "frames": [
+        "frames/surprised_2_1.png",
+        "frames/surprised_2_2.png",
+        "frames/surprised_2_3.png"
+      ]
+    },
+    {
+      "expression": "SLEEPY",
+      "weight": 3,
+      "frame_interval_ms": 260,
+      "frames": [
+        "frames/sleepy_1_1.png",
+        "frames/sleepy_1_2.png",
+        "frames/sleepy_1_3.png"
+      ]
+    },
+    {
+      "expression": "SLEEPY",
+      "weight": 1,
+      "frame_interval_ms": 220,
+      "frames": [
+        "frames/sleepy_2_1.png",
+        "frames/sleepy_2_2.png",
+        "frames/sleepy_2_3.png"
+      ]
+    }
+  ]
+}
