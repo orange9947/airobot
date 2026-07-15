@@ -6,6 +6,7 @@
 #include "motion_service.h"
 #include "robot_state.h"
 #include "safety_supervisor.h"
+#include "session_epoch.h"
 #include "test_harness.h"
 
 typedef struct {
@@ -162,11 +163,76 @@ static int test_input_policy_with_button(void) {
     return 0;
 }
 
+static int test_session_peer_epoch(void) {
+    session_peer_epoch_t epoch;
+
+    session_peer_epoch_init(&epoch);
+    TEST_ASSERT_EQ(SESSION_PEER_FIRST,
+                   session_peer_epoch_observe(&epoch, 0u));
+    TEST_ASSERT_EQ(SESSION_PEER_SAME,
+                   session_peer_epoch_observe(&epoch, 0u));
+    TEST_ASSERT_EQ(SESSION_PEER_CHANGED,
+                   session_peer_epoch_observe(&epoch, 0x12345678u));
+    TEST_ASSERT_EQ(SESSION_PEER_SAME,
+                   session_peer_epoch_observe(&epoch, 0x12345678u));
+    TEST_ASSERT_EQ(SESSION_PEER_CHANGED,
+                   session_peer_epoch_observe(&epoch, 0u));
+    return 0;
+}
+
+static int test_session_boot_counter_slots(void) {
+    session_boot_record_t slot_a = {0};
+    session_boot_record_t slot_b = {0};
+    session_boot_record_t next_record;
+    uint32_t decoded;
+    uint32_t next;
+    uint8_t target;
+
+    next = session_boot_counter_advance(&slot_a, &slot_b, &target,
+                                        &next_record);
+    TEST_ASSERT_EQ(1u, next);
+    TEST_ASSERT_EQ(SESSION_BOOT_SLOT_A, target);
+    TEST_ASSERT(session_boot_record_decode(&next_record, &decoded));
+    TEST_ASSERT_EQ(next, decoded);
+
+    slot_a = next_record;
+    next = session_boot_counter_advance(&slot_a, &slot_b, &target,
+                                        &next_record);
+    TEST_ASSERT_EQ(2u, next);
+    TEST_ASSERT_EQ(SESSION_BOOT_SLOT_B, target);
+    slot_b = next_record;
+
+    next = session_boot_counter_advance(&slot_a, &slot_b, &target,
+                                        &next_record);
+    TEST_ASSERT_EQ(3u, next);
+    TEST_ASSERT_EQ(SESSION_BOOT_SLOT_A, target);
+    TEST_ASSERT(session_boot_record_decode(&next_record, &decoded));
+    TEST_ASSERT_EQ(3u, decoded);
+
+    slot_b.check ^= 1u;
+    next = session_boot_counter_advance(&slot_a, &slot_b, &target,
+                                        &next_record);
+    TEST_ASSERT_EQ(2u, next);
+    TEST_ASSERT_EQ(SESSION_BOOT_SLOT_B, target);
+
+    session_boot_record_encode(UINT32_MAX, &slot_a);
+    slot_b = (session_boot_record_t){0};
+    next = session_boot_counter_advance(&slot_a, &slot_b, &target,
+                                        &next_record);
+    TEST_ASSERT_EQ(1u, next);
+    TEST_ASSERT_EQ(SESSION_BOOT_SLOT_B, target);
+    TEST_ASSERT(session_boot_record_decode(&next_record, &decoded));
+    TEST_ASSERT_EQ(1u, decoded);
+    return 0;
+}
+
 int main(void) {
     TEST_ASSERT_EQ(0, test_state_and_safety());
     TEST_ASSERT_EQ(0, test_motion());
     TEST_ASSERT_EQ(0, test_encoder());
     TEST_ASSERT_EQ(0, test_input_policy_without_button());
     TEST_ASSERT_EQ(0, test_input_policy_with_button());
+    TEST_ASSERT_EQ(0, test_session_peer_epoch());
+    TEST_ASSERT_EQ(0, test_session_boot_counter_slots());
     return 0;
 }

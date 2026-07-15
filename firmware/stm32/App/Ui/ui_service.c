@@ -39,7 +39,7 @@ static void draw_text(ssd1306_t *display, uint8_t x, uint8_t y, const char *text
     }
 }
 
-static void draw_face(ui_service_t *ui) {
+static void draw_builtin_face(ui_service_t *ui) {
     ssd1306_t *display = &ui->display;
     const face_pose_t *pose = &ui->animator.pose;
     int16_t gaze_offset = (int16_t)pose->gaze * 3;
@@ -114,11 +114,38 @@ static void draw_face(ui_service_t *ui) {
                               (uint8_t)(40u + pose->mouth_variant % 2u), width, 2u, true);
         }
     }
+}
+
+static void draw_overlays(ui_service_t *ui) {
+    ssd1306_t *display = &ui->display;
     status_label_layout_t label;
+
+    ssd1306_fill_rect(display, 0u, 0u, 9u, 9u, false);
     if (status_label_for_state((uint8_t)ui->state, &label)) {
+        uint8_t background_x = label.x > 0u ? (uint8_t)(label.x - 1u) : 0u;
+        ssd1306_fill_rect(display, background_x, 0u,
+                          (uint8_t)(label.width + 2u), 9u, false);
         draw_text(display, label.x, label.y, label.text);
     }
     ssd1306_fill_rect(display, 2u, 2u, 5u, 5u, ui->link_healthy);
+}
+
+static bool draw_resource_face(ui_service_t *ui) {
+    face_resource_provider_t *provider = ui->resource_provider;
+    face_resource_provider_status_t status;
+
+    if (provider == NULL || ui->state == ROBOT_STATE_ESTOP ||
+        ui->state == ROBOT_STATE_FAULT ||
+        !face_resource_provider_has_frame(provider)) {
+        return false;
+    }
+    status = face_resource_provider_decode_current(
+        provider, ui->display.buffer, sizeof(ui->display.buffer));
+    if (status != FACE_RESOURCE_PROVIDER_OK &&
+        !face_resource_provider_is_healthy(provider)) {
+        ui->resource_provider = NULL;
+    }
+    return status == FACE_RESOURCE_PROVIDER_OK;
 }
 
 bool ui_service_init(ui_service_t *ui, uint32_t random_seed) {
@@ -127,6 +154,7 @@ bool ui_service_init(ui_service_t *ui, uint32_t random_seed) {
     }
     ui->expression = ROBOT_EXPRESSION_NEUTRAL;
     face_animator_init(&ui->animator, random_seed, ROBOT_EXPRESSION_NEUTRAL, 0u);
+    ui->resource_provider = NULL;
     ui->state = ROBOT_STATE_SELF_TEST;
     ui->link_healthy = false;
     ui->dirty = true;
@@ -136,10 +164,28 @@ bool ui_service_init(ui_service_t *ui, uint32_t random_seed) {
     return ssd1306_init(&ui->display);
 }
 
+void ui_service_set_resource_provider(
+    ui_service_t *ui, face_resource_provider_t *provider, uint32_t now_ms) {
+    if (ui == NULL) {
+        return;
+    }
+    ui->resource_provider = provider;
+    if (provider != NULL && ui->expression <= RESOURCE_MAX_EXPRESSION_ID) {
+        (void)face_resource_provider_set_expression(
+            provider, ui->expression, now_ms);
+    }
+    ui->dirty = true;
+}
+
 void ui_service_set_expression(ui_service_t *ui, uint8_t expression, uint32_t now_ms) {
     if (ui != NULL && expression <= ROBOT_EXPRESSION_FAULT) {
         ui->expression = expression;
         (void)face_animator_set_expression(&ui->animator, expression, now_ms);
+        if (ui->resource_provider != NULL &&
+            expression <= RESOURCE_MAX_EXPRESSION_ID) {
+            (void)face_resource_provider_set_expression(
+                ui->resource_provider, expression, now_ms);
+        }
         ui->dirty = true;
     }
 }
@@ -153,12 +199,35 @@ void ui_service_set_status(ui_service_t *ui, robot_state_value_t state, bool lin
 }
 
 void ui_service_tick(ui_service_t *ui, uint32_t now_ms) {
+    bool resource_frame = false;
+    bool resource_changed = false;
+
     if (ui == NULL) {
         return;
     }
-    if (ui->state != ROBOT_STATE_ESTOP && ui->state != ROBOT_STATE_FAULT &&
-        face_animator_tick(&ui->animator, now_ms)) {
-        ui->dirty = true;
+    if (ui->state != ROBOT_STATE_ESTOP && ui->state != ROBOT_STATE_FAULT) {
+        if (ui->resource_provider != NULL) {
+            face_resource_provider_status_t status;
+
+            status = face_resource_provider_tick(
+                ui->resource_provider, now_ms, &resource_changed);
+            if (status == FACE_RESOURCE_PROVIDER_OK) {
+                resource_frame = face_resource_provider_has_frame(
+                    ui->resource_provider);
+                if (resource_changed) {
+                    ui->dirty = true;
+                }
+            } else if (status == FACE_RESOURCE_PROVIDER_FALLBACK) {
+                resource_frame = false;
+            } else {
+                ui->resource_provider = NULL;
+                resource_frame = false;
+                ui->dirty = true;
+            }
+        }
+        if (!resource_frame && face_animator_tick(&ui->animator, now_ms)) {
+            ui->dirty = true;
+        }
     }
     if (!ui->display.available) {
         return;
@@ -167,7 +236,10 @@ void ui_service_tick(ui_service_t *ui, uint32_t now_ms) {
         if (!ui->dirty || (uint32_t)(now_ms - ui->last_flush_ms) < 100u) {
             return;
         }
-        draw_face(ui);
+        if (!draw_resource_face(ui)) {
+            draw_builtin_face(ui);
+        }
+        draw_overlays(ui);
         ui->dirty = false;
         ui->flush_active = true;
         ui->next_page = 0u;

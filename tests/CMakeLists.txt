@@ -3,7 +3,16 @@ target_include_directories(test_smoke PRIVATE support)
 robot_apply_warnings(test_smoke)
 add_test(NAME smoke COMMAND test_smoke)
 
+add_executable(test_w25q_addressing unit/test_w25q_addressing.c)
+target_include_directories(test_w25q_addressing PRIVATE
+  support
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/Drivers/Storage
+)
+robot_apply_warnings(test_w25q_addressing)
+add_test(NAME w25q_addressing COMMAND test_w25q_addressing)
+
 add_library(robot_protocol_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Protocol/controller_session_policy.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Protocol/robot_crc16.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Protocol/robot_spi_slot.c
 )
@@ -20,6 +29,7 @@ robot_apply_warnings(test_protocol_c)
 add_test(NAME protocol_c COMMAND test_protocol_c)
 
 add_library(robot_core_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Core/session_epoch.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Core/robot_state.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Safety/safety_supervisor.c
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Motion/motion_service.c
@@ -69,3 +79,63 @@ target_include_directories(test_status_label PRIVATE support)
 target_link_libraries(test_status_label PRIVATE status_label_host)
 robot_apply_warnings(test_status_label)
 add_test(NAME status_label COMMAND test_status_label)
+
+add_library(resource_format_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage/resource_crc32.c
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage/resource_format.c
+)
+target_include_directories(resource_format_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage
+)
+robot_apply_warnings(resource_format_host)
+
+add_executable(test_resource_format unit/test_resource_format.c)
+target_include_directories(test_resource_format PRIVATE support)
+target_link_libraries(test_resource_format PRIVATE resource_format_host)
+robot_apply_warnings(test_resource_format)
+add_test(NAME resource_format COMMAND test_resource_format)
+
+add_library(storage_service_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage/storage_service.c
+)
+target_include_directories(storage_service_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage
+)
+target_link_libraries(storage_service_host PUBLIC resource_format_host)
+robot_apply_warnings(storage_service_host)
+
+add_executable(test_storage_service unit/test_storage_service.c)
+target_include_directories(test_storage_service PRIVATE support)
+target_link_libraries(test_storage_service PRIVATE storage_service_host)
+robot_apply_warnings(test_storage_service)
+add_test(NAME storage_service COMMAND test_storage_service)
+
+add_library(resource_policy_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage/resource_policy.c
+)
+target_include_directories(resource_policy_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Core
+)
+robot_apply_warnings(resource_policy_host)
+
+add_executable(test_resource_policy unit/test_resource_policy.c)
+target_include_directories(test_resource_policy PRIVATE support)
+target_link_libraries(test_resource_policy PRIVATE resource_policy_host)
+robot_apply_warnings(test_resource_policy)
+add_test(NAME resource_policy COMMAND test_resource_policy)
+
+add_library(face_resource_provider_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage/face_resource_provider.c
+)
+target_include_directories(face_resource_provider_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Storage
+)
+target_link_libraries(face_resource_provider_host PUBLIC resource_format_host)
+robot_apply_warnings(face_resource_provider_host)
+
+add_executable(test_face_resource_provider unit/test_face_resource_provider.c)
+target_include_directories(test_face_resource_provider PRIVATE support)
+target_link_libraries(test_face_resource_provider PRIVATE face_resource_provider_host)
+robot_apply_warnings(test_face_resource_provider)
+add_test(NAME face_resource_provider COMMAND test_face_resource_provider)

@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "controller_session_policy.h"
 #include "protocol_golden.h"
 #include "protocol_layouts.h"
 #include "robot_crc16.h"
@@ -33,6 +34,38 @@ static int test_resource_layouts(void) {
     TEST_ASSERT_EQ(0x0407u, ROBOT_MSG_RESOURCE_STATUS);
     TEST_ASSERT_EQ(256u, ROBOT_PAYLOAD_LEN_RESOURCE_CHUNK);
     TEST_ASSERT_EQ(256u, robot_protocol_payload_length(ROBOT_MSG_RESOURCE_CHUNK));
+    return 0;
+}
+
+static int test_controller_session_policy(void) {
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_REJECT_BAD_STATE,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_MOVE_WHEELS));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_REJECT_BAD_STATE,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_RESOURCE_BEGIN));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_REJECT_BAD_STATE,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_GET_RESOURCE_STATUS));
+
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(false, ROBOT_MSG_NOOP));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_HELLO_REQ));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_HEARTBEAT));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_GET_STATE));
+
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(
+                       true, ROBOT_MSG_MOVE_WHEELS));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(
+                       true, ROBOT_MSG_RESOURCE_BEGIN));
     return 0;
 }
 
@@ -137,6 +170,7 @@ int main(void) {
     TEST_ASSERT_EQ(0, test_crc());
     TEST_ASSERT_EQ(0, test_clear_estop_layout());
     TEST_ASSERT_EQ(0, test_resource_layouts());
+    TEST_ASSERT_EQ(0, test_controller_session_policy());
     TEST_ASSERT_EQ(0, test_decode_golden());
     TEST_ASSERT_EQ(0, test_encode_matches_golden());
     TEST_ASSERT_EQ(0, test_decode_resource_chunk_golden());

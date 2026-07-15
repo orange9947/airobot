@@ -31,6 +31,7 @@ set(APP_SOURCES
   Core/Src/syscalls.c
   App/Board/board.c
   App/app.c
+  App/Core/session_epoch.c
   App/Core/robot_state.c
   App/Safety/safety_supervisor.c
   App/Motion/motion_service.c
@@ -39,8 +40,15 @@ set(APP_SOURCES
   App/Ui/ui_service.c
   App/Ui/face_animator.c
   App/Ui/status_label.c
+  App/Protocol/controller_session_policy.c
   App/Protocol/robot_crc16.c
   App/Protocol/robot_spi_slot.c
+  App/Storage/resource_crc32.c
+  App/Storage/resource_format.c
+  App/Storage/resource_policy.c
+  App/Storage/storage_service.c
+  App/Storage/face_resource_provider.c
+  App/Storage/w25q_storage_adapter.c
   Drivers/Display/soft_i2c.c
   Drivers/Display/ssd1306.c
   Drivers/Motor/uln2003_hw.c
@@ -65,6 +73,7 @@ target_include_directories(desktop_robot PRIVATE
   App/Input
   App/Ui
   App/Protocol
+  App/Storage
   Drivers/Display
   Drivers/Motor
   Drivers/Spi

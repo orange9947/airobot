@@ -2,12 +2,58 @@
 
 #include "board_pins.h"
 #include "main.h"
+#include "session_epoch.h"
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
 TIM_HandleTypeDef htim2;
 DMA_HandleTypeDef hdma_spi1_rx;
 DMA_HandleTypeDef hdma_spi1_tx;
+
+static __IO uint32_t *backup_register(uint8_t index) {
+    switch (index) {
+        case 0u:
+            return &BKP->DR1;
+        case 1u:
+            return &BKP->DR2;
+        case 2u:
+            return &BKP->DR3;
+        case 3u:
+            return &BKP->DR4;
+        case 4u:
+            return &BKP->DR5;
+        case 5u:
+            return &BKP->DR6;
+        case 6u:
+            return &BKP->DR7;
+        case 7u:
+            return &BKP->DR8;
+        default:
+            return &BKP->DR1;
+    }
+}
+
+static session_boot_record_t backup_read_record(uint8_t slot) {
+    uint8_t base = slot == SESSION_BOOT_SLOT_B ? 4u : 0u;
+    session_boot_record_t record;
+
+    record.magic = (uint16_t)*backup_register(base);
+    record.counter_low = (uint16_t)*backup_register((uint8_t)(base + 1u));
+    record.counter_high = (uint16_t)*backup_register((uint8_t)(base + 2u));
+    record.check = (uint16_t)*backup_register((uint8_t)(base + 3u));
+    return record;
+}
+
+static void backup_write_record(uint8_t slot,
+                                const session_boot_record_t *record) {
+    uint8_t base = slot == SESSION_BOOT_SLOT_B ? 4u : 0u;
+
+    *backup_register(base) = 0u;
+    *backup_register((uint8_t)(base + 1u)) = record->counter_low;
+    *backup_register((uint8_t)(base + 2u)) = record->counter_high;
+    *backup_register((uint8_t)(base + 3u)) = record->check;
+    *backup_register(base) = record->magic;
+}
 
 static void gpio_output(GPIO_TypeDef *port, uint16_t pins, GPIO_PinState state,
                         uint32_t mode, uint32_t speed) {
@@ -162,4 +208,23 @@ void board_status_led_set(bool on) {
 
 uint32_t board_millis(void) {
     return HAL_GetTick();
+}
+
+uint32_t board_next_boot_id(void) {
+    session_boot_record_t slot_a;
+    session_boot_record_t slot_b;
+    session_boot_record_t next_record;
+    uint8_t target_slot;
+    uint32_t boot_id;
+
+    __HAL_RCC_PWR_CLK_ENABLE();
+    __HAL_RCC_BKP_CLK_ENABLE();
+    HAL_PWR_EnableBkUpAccess();
+    slot_a = backup_read_record(SESSION_BOOT_SLOT_A);
+    slot_b = backup_read_record(SESSION_BOOT_SLOT_B);
+    boot_id = session_boot_counter_advance(
+        &slot_a, &slot_b, &target_slot, &next_record);
+    backup_write_record(target_slot, &next_record);
+    HAL_PWR_DisableBkUpAccess();
+    return boot_id;
 }
