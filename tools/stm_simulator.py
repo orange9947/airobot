@@ -116,11 +116,26 @@ class RobotSimulator:
             0,
         )
 
-    def _abort_motion(self, reason):
-        if self.active:
-            command_id = self.active["command_id"]
-            self.active = None
-            self._queue(protocol_ids.MSG_MOTION_ABORTED, (command_id, reason), priority=True)
+    def _abort_active(self, reason):
+        if not self.active:
+            return
+        active = self.active
+        self.active = None
+        if active["kind"] == "coil":
+            self._queue(
+                protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                (
+                    active["command_id"],
+                    protocol_ids.COILDIAGNOSTICRESULT_ABORTED,
+                ),
+                priority=True,
+            )
+        else:
+            self._queue(
+                protocol_ids.MSG_MOTION_ABORTED,
+                (active["command_id"], reason),
+                priority=True,
+            )
 
     def _resource_fail(self, error, state=protocol_ids.RESOURCESTATE_FAILED):
         if self.resource_update is None:
@@ -331,19 +346,40 @@ class RobotSimulator:
 
     def _tick(self, now_ms):
         self.now_ms = now_ms & 0xFFFFFFFF
-        if self.active and now_ms >= self.active["finish_ms"]:
-            motion = self.active
-            self.active = None
-            self._queue(
-                protocol_ids.MSG_MOTION_DONE,
-                (motion["command_id"], motion["left_steps"], motion["right_steps"], 0),
-            )
+        if self.active:
+            active = self.active
+            if active["kind"] == "coil":
+                finished = (
+                    (self.now_ms - active["started_ms"]) & 0xFFFFFFFF
+                ) >= active["duration_ms"]
+            else:
+                finished = now_ms >= active["finish_ms"]
+            if finished:
+                self.active = None
+                if active["kind"] == "coil":
+                    self._queue(
+                        protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                        (
+                            active["command_id"],
+                            protocol_ids.COILDIAGNOSTICRESULT_DONE,
+                        ),
+                    )
+                else:
+                    self._queue(
+                        protocol_ids.MSG_MOTION_DONE,
+                        (
+                            active["command_id"],
+                            active["left_steps"],
+                            active["right_steps"],
+                            0,
+                        ),
+                    )
         if self.session and (now_ms - self.last_heartbeat_ms) > self.HEARTBEAT_TIMEOUT_MS:
             self.session = False
             self.state = protocol_ids.ROBOTSTATE_ESTOP
             self.selected_mode = protocol_ids.MODE_IDLE
             self.fault_code = protocol_ids.ERRORCODE_LINK_LOST
-            self._abort_motion(protocol_ids.ABORTREASON_LINK_LOST)
+            self._abort_active(protocol_ids.ABORTREASON_LINK_LOST)
             if self.resource_state != protocol_ids.RESOURCESTATE_COMMITTING:
                 self._resource_fail(protocol_ids.RESOURCEERROR_LINK_LOST)
             self._queue(protocol_ids.MSG_FAULT_EVENT, (protocol_ids.ERRORCODE_LINK_LOST, self.HEARTBEAT_TIMEOUT_MS), priority=True)
@@ -410,7 +446,7 @@ class RobotSimulator:
             esp_boot_id, _capabilities = unpack_payload(message_type, decoded["payload"])
             if self.esp_boot_id is not None and esp_boot_id != self.esp_boot_id:
                 self._resource_fail(protocol_ids.RESOURCEERROR_LINK_LOST)
-                self._abort_motion(protocol_ids.ABORTREASON_LINK_LOST)
+                self._abort_active(protocol_ids.ABORTREASON_LINK_LOST)
                 self._dedup.clear()
                 self._outgoing.clear()
             self.esp_boot_id = esp_boot_id
@@ -418,7 +454,7 @@ class RobotSimulator:
             self.last_heartbeat_ms = self.now_ms
             self._queue(
                 protocol_ids.MSG_HELLO_RSP,
-                (self.boot_id, 0x1F, 0, 1, 0, self.state),
+                (self.boot_id, 0x3F, 0, 1, 0, self.state),
                 protocol_ids.SLOTFLAGS_RESPONSE,
                 priority=True,
             )
@@ -472,7 +508,7 @@ class RobotSimulator:
             elif self.resource_update is not None and mode != protocol_ids.MODE_IDLE:
                 response = self._nack(seq, command_id, protocol_ids.ERRORCODE_BAD_STATE)
             else:
-                self._abort_motion(protocol_ids.ABORTREASON_MODE_CHANGE)
+                self._abort_active(protocol_ids.ABORTREASON_MODE_CHANGE)
                 self.selected_mode = mode
                 self.state = mode
                 response = self._ack(seq, command_id)
@@ -493,6 +529,7 @@ class RobotSimulator:
             else:
                 duration = min(timeout_ms, max(1, (max(abs(left_steps), abs(right_steps)) * 1000 + rate - 1) // rate))
                 self.active = {
+                    "kind": "motion",
                     "command_id": command_id,
                     "left_steps": left_steps,
                     "right_steps": right_steps,
@@ -503,8 +540,48 @@ class RobotSimulator:
             self._remember_dedup(dedup_key, response)
             return
 
+        if message_type == protocol_ids.MSG_COIL_DIAGNOSTIC:
+            _command_id, wheel, channel, duration_ms = values
+            if self.resource_update is not None:
+                response = self._nack(
+                    seq, command_id, protocol_ids.ERRORCODE_BAD_STATE
+                )
+            elif self.state != protocol_ids.ROBOTSTATE_MANUAL:
+                response = self._nack(
+                    seq, command_id, protocol_ids.ERRORCODE_BAD_STATE
+                )
+            elif self.active is not None:
+                response = self._nack(
+                    seq, command_id, protocol_ids.ERRORCODE_QUEUE_FULL
+                )
+            elif (
+                wheel not in (
+                    protocol_ids.COILWHEEL_LEFT,
+                    protocol_ids.COILWHEEL_RIGHT,
+                )
+                or channel < protocol_ids.COILCHANNEL_A
+                or channel > protocol_ids.COILCHANNEL_D
+                or duration_ms < 100
+                or duration_ms > 3000
+            ):
+                response = self._nack(
+                    seq, command_id, protocol_ids.ERRORCODE_OUT_OF_RANGE
+                )
+            else:
+                self.active = {
+                    "kind": "coil",
+                    "command_id": command_id,
+                    "wheel": wheel,
+                    "channel": channel,
+                    "started_ms": self.now_ms,
+                    "duration_ms": duration_ms,
+                }
+                response = self._ack(seq, command_id)
+            self._remember_dedup(dedup_key, response)
+            return
+
         if message_type == protocol_ids.MSG_STOP:
-            self._abort_motion(protocol_ids.ABORTREASON_STOP)
+            self._abort_active(protocol_ids.ABORTREASON_STOP)
             self.state = protocol_ids.ROBOTSTATE_ESTOP
             self.selected_mode = protocol_ids.MODE_IDLE
             self.fault_code = 11

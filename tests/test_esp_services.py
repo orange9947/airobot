@@ -7,7 +7,12 @@ import unittest
 from firmware.esp32.core.security import pbkdf2_sha256, pbkdf2_sha256_async
 from firmware.esp32.services.config_service import ConfigService
 from firmware.esp32.services.device_service import DeviceCommandError, DeviceService
-from firmware.esp32.transport.frame_codec import decode_slot, encode_slot, pack_payload
+from firmware.esp32.transport.frame_codec import (
+    decode_slot,
+    encode_slot,
+    pack_payload,
+    unpack_payload,
+)
 from protocol.generated import protocol_ids
 from tools import resource_format
 from tools.stm_simulator import RobotSimulator
@@ -73,6 +78,7 @@ class EspServiceTests(unittest.TestCase):
         )
         device._waiting_results[3] = 1
         device._motion_waiters[4] = True
+        device._coil_diagnostic_waiters[6] = True
         device._resource_status_waiters[5] = 7
 
         device._process_slot(
@@ -100,6 +106,7 @@ class EspServiceTests(unittest.TestCase):
         self.assertFalse(device.mailbox._queue)
         self.assertFalse(device._waiting_results)
         self.assertFalse(device._motion_waiters)
+        self.assertFalse(device._coil_diagnostic_waiters)
         self.assertFalse(device._resource_status_waiters)
         self.assertTrue(
             any(event.get("type") == "link" and not event["connected"] for event in events)
@@ -639,6 +646,222 @@ class EspServiceTests(unittest.TestCase):
             100 + device._ignored_motion_capacity + 5,
             device._ignored_motion_results,
         )
+
+    def test_coil_diagnostic_waits_for_correlated_result(self):
+        async def scenario():
+            link = RecordingSpiLink()
+            device = DeviceService(link, boot_id=0x45535031)
+            device.status["capabilities"] = 0x20
+            task = asyncio.create_task(
+                device.diagnose_coil(
+                    protocol_ids.COILWHEEL_RIGHT,
+                    protocol_ids.COILCHANNEL_A,
+                    3000,
+                )
+            )
+            await asyncio.sleep(0)
+            item = device.mailbox._queue[0]
+            self.assertEqual(item["type"], protocol_ids.MSG_COIL_DIAGNOSTIC)
+            self.assertEqual(
+                unpack_payload(item["type"], item["payload"]),
+                (
+                    item["command_id"],
+                    protocol_ids.COILWHEEL_RIGHT,
+                    protocol_ids.COILCHANNEL_A,
+                    3000,
+                ),
+            )
+
+            device.mailbox.poll(0)
+            deliver_command_result(
+                device,
+                protocol_ids.MSG_ACK,
+                item["seq"],
+                item["command_id"],
+            )
+            await asyncio.sleep(0)
+            device._process_slot(
+                {
+                    "type": protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                    "values": (
+                        item["command_id"],
+                        protocol_ids.COILDIAGNOSTICRESULT_DONE,
+                    ),
+                }
+            )
+            result = await task
+            self.assertTrue(result["ok"])
+            self.assertEqual(
+                result["result"], protocol_ids.COILDIAGNOSTICRESULT_DONE
+            )
+            self.assertFalse(device._coil_diagnostic_waiters)
+            self.assertFalse(device._coil_diagnostic_results)
+
+        asyncio.run(scenario())
+
+    def test_coil_diagnostic_rejects_invalid_or_unsupported_locally(self):
+        async def scenario():
+            device = DeviceService(RecordingSpiLink(), boot_id=0x45535031)
+            with self.assertRaises(DeviceCommandError):
+                await device.diagnose_coil(
+                    protocol_ids.COILWHEEL_RIGHT,
+                    protocol_ids.COILCHANNEL_A,
+                    3000,
+                )
+
+            device.status["capabilities"] = 0x20
+            for wheel, channel, duration in (
+                (2, protocol_ids.COILCHANNEL_A, 3000),
+                (protocol_ids.COILWHEEL_RIGHT, 4, 3000),
+                (protocol_ids.COILWHEEL_RIGHT, "A", 3000),
+                (protocol_ids.COILWHEEL_RIGHT, protocol_ids.COILCHANNEL_A, 99),
+                (protocol_ids.COILWHEEL_RIGHT, protocol_ids.COILCHANNEL_A, 3001),
+                (protocol_ids.COILWHEEL_RIGHT, protocol_ids.COILCHANNEL_A, 1.5),
+            ):
+                with self.subTest(
+                    wheel=wheel, channel=channel, duration=duration
+                ):
+                    with self.assertRaises(ValueError):
+                        await device.diagnose_coil(wheel, channel, duration)
+            self.assertFalse(device.mailbox._queue)
+
+        asyncio.run(scenario())
+
+    def test_coil_diagnostic_cancel_queues_stop_and_cleans_waiter(self):
+        async def scenario():
+            link = RecordingSpiLink()
+            device = DeviceService(link, boot_id=0x45535031)
+            device.status["capabilities"] = 0x20
+            task = asyncio.create_task(
+                device.diagnose_coil(
+                    protocol_ids.COILWHEEL_RIGHT,
+                    protocol_ids.COILCHANNEL_B,
+                    3000,
+                )
+            )
+            await asyncio.sleep(0)
+            item = device.mailbox._queue[0]
+            device.mailbox.poll(0)
+            deliver_command_result(
+                device,
+                protocol_ids.MSG_ACK,
+                item["seq"],
+                item["command_id"],
+            )
+            await asyncio.sleep(0.02)
+            self.assertFalse(task.done())
+
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(
+                device.mailbox._urgent["type"], protocol_ids.MSG_STOP
+            )
+            self.assertNotIn(
+                item["command_id"], device._coil_diagnostic_waiters
+            )
+            self.assertIn(
+                item["command_id"],
+                device._ignored_coil_diagnostic_results,
+            )
+
+        asyncio.run(scenario())
+
+    def test_coil_results_require_waiter_and_ignored_set_is_bounded(self):
+        device = DeviceService(SimulatedSpiLink(), boot_id=0x45535031)
+        device._process_slot(
+            {
+                "type": protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                "values": (90, protocol_ids.COILDIAGNOSTICRESULT_DONE),
+            }
+        )
+        self.assertFalse(device._coil_diagnostic_results)
+
+        device._coil_diagnostic_waiters[91] = True
+        device._process_slot(
+            {
+                "type": protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                "values": (92, protocol_ids.COILDIAGNOSTICRESULT_DONE),
+            }
+        )
+        self.assertFalse(device._coil_diagnostic_results)
+        self.assertIn(91, device._coil_diagnostic_waiters)
+
+        device._process_slot(
+            {
+                "type": protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                "values": (91, protocol_ids.COILDIAGNOSTICRESULT_ABORTED),
+            }
+        )
+        self.assertFalse(device._coil_diagnostic_results[91]["ok"])
+        self.assertNotIn(91, device._coil_diagnostic_waiters)
+
+        for command_id in range(
+            100, 100 + device._ignored_coil_diagnostic_capacity + 6
+        ):
+            device._ignore_coil_diagnostic_result(command_id)
+        self.assertEqual(
+            len(device._ignored_coil_diagnostic_results),
+            device._ignored_coil_diagnostic_capacity,
+        )
+
+    def test_coil_wait_timeout_queues_stop_and_discards_late_result(self):
+        class FastCoilTimeoutDevice(DeviceService):
+            async def wait_coil_diagnostic(self, command_id, timeout_ms=3600):
+                return await DeviceService.wait_coil_diagnostic(
+                    self, command_id, timeout_ms=0
+                )
+
+        async def scenario():
+            link = RecordingSpiLink()
+            device = FastCoilTimeoutDevice(link, boot_id=0x45535031)
+            device.status["capabilities"] = 0x20
+            task = asyncio.create_task(
+                device.diagnose_coil(
+                    protocol_ids.COILWHEEL_RIGHT,
+                    protocol_ids.COILCHANNEL_A,
+                    3000,
+                )
+            )
+            await asyncio.sleep(0)
+            item = device.mailbox._queue[0]
+            device.mailbox.poll(0)
+            deliver_command_result(
+                device,
+                protocol_ids.MSG_ACK,
+                item["seq"],
+                item["command_id"],
+            )
+
+            with self.assertRaises(DeviceCommandError) as context:
+                await task
+            self.assertTrue(context.exception.timed_out)
+            self.assertEqual(
+                device.mailbox._urgent["type"], protocol_ids.MSG_STOP
+            )
+            self.assertIn(
+                item["command_id"],
+                device._ignored_coil_diagnostic_results,
+            )
+
+            device._process_slot(
+                {
+                    "type": protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT,
+                    "values": (
+                        item["command_id"],
+                        protocol_ids.COILDIAGNOSTICRESULT_DONE,
+                    ),
+                }
+            )
+            self.assertNotIn(
+                item["command_id"],
+                device._ignored_coil_diagnostic_results,
+            )
+            self.assertNotIn(
+                item["command_id"], device._coil_diagnostic_results
+            )
+
+        asyncio.run(scenario())
 
     def test_resource_status_waiters_are_correlated_by_request_seq(self):
         async def scenario():

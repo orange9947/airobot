@@ -108,6 +108,143 @@ class StmSimulatorTests(unittest.TestCase):
         self.assertEqual(values[0], 0x1234)
         self.assertEqual(values[2], protocol_ids.ROBOTSTATE_IDLE)
 
+    def test_hello_advertises_coil_diagnostic_capability(self):
+        harness = SimulatorHarness()
+        response = harness.hello()
+        values = unpack_payload(response["type"], response["payload"])
+        self.assertEqual(values[1] & 0x20, 0x20)
+
+    def test_coil_diagnostic_requires_manual_and_valid_bounds(self):
+        self.h.transact(
+            protocol_ids.MSG_COIL_DIAGNOSTIC,
+            (
+                201,
+                protocol_ids.COILWHEEL_RIGHT,
+                protocol_ids.COILCHANNEL_A,
+                3000,
+            ),
+        )
+        rejected = self.h.poll()
+        self.assertEqual(rejected["type"], protocol_ids.MSG_NACK)
+        self.assertIsNone(self.h.sim.active)
+
+        self.h.transact(protocol_ids.MSG_SET_MODE, (202, protocol_ids.MODE_MANUAL))
+        self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_ACK)
+        self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_MODE_CHANGED)
+        self.h.transact(
+            protocol_ids.MSG_COIL_DIAGNOSTIC,
+            (
+                203,
+                protocol_ids.COILWHEEL_RIGHT,
+                protocol_ids.COILCHANNEL_A,
+                3001,
+            ),
+        )
+        rejected = self.h.poll()
+        self.assertEqual(rejected["type"], protocol_ids.MSG_NACK)
+        values = unpack_payload(rejected["type"], rejected["payload"])
+        self.assertEqual(values[2], protocol_ids.ERRORCODE_OUT_OF_RANGE)
+        self.assertIsNone(self.h.sim.active)
+
+    def test_coil_diagnostic_locks_move_and_completes_at_deadline(self):
+        self.h.transact(protocol_ids.MSG_SET_MODE, (210, protocol_ids.MODE_MANUAL))
+        self.h.poll()
+        self.h.poll()
+        self.h.transact(
+            protocol_ids.MSG_COIL_DIAGNOSTIC,
+            (
+                211,
+                protocol_ids.COILWHEEL_RIGHT,
+                protocol_ids.COILCHANNEL_C,
+                3000,
+            ),
+        )
+        self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_ACK)
+        self.assertEqual(self.h.sim.active["kind"], "coil")
+        started_ms = self.h.sim.active["started_ms"]
+
+        self.h.transact(
+            protocol_ids.MSG_MOVE_WHEELS,
+            (212, 10, 10, 100, 200, 500),
+        )
+        rejected = self.h.poll()
+        self.assertEqual(rejected["type"], protocol_ids.MSG_NACK)
+        self.assertEqual(self.h.sim.active["command_id"], 211)
+
+        elapsed = (self.h.now - started_ms) & 0xFFFFFFFF
+        remaining = 2999 - elapsed
+        while remaining:
+            advance = min(500, remaining)
+            self.h.poll(advance=advance)
+            remaining -= advance
+        self.assertIsNotNone(self.h.sim.active)
+        done = self.h.poll(advance=1)
+        self.assertEqual(done["type"], protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT)
+        values = unpack_payload(done["type"], done["payload"])
+        self.assertEqual(values, (211, protocol_ids.COILDIAGNOSTICRESULT_DONE))
+        self.assertIsNone(self.h.sim.active)
+
+    def test_stop_aborts_active_coil_diagnostic(self):
+        self.h.transact(protocol_ids.MSG_SET_MODE, (220, protocol_ids.MODE_MANUAL))
+        self.h.poll()
+        self.h.poll()
+        self.h.transact(
+            protocol_ids.MSG_COIL_DIAGNOSTIC,
+            (
+                221,
+                protocol_ids.COILWHEEL_RIGHT,
+                protocol_ids.COILCHANNEL_D,
+                3000,
+            ),
+        )
+        self.h.poll()
+
+        self.h.transact(
+            protocol_ids.MSG_STOP,
+            (222, protocol_ids.ABORTREASON_STOP),
+        )
+        self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_ACK)
+        aborted = self.h.poll()
+        self.assertEqual(
+            aborted["type"], protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT
+        )
+        values = unpack_payload(aborted["type"], aborted["payload"])
+        self.assertEqual(
+            values, (221, protocol_ids.COILDIAGNOSTICRESULT_ABORTED)
+        )
+        self.assertIsNone(self.h.sim.active)
+        self.assertEqual(self.h.sim.state, protocol_ids.ROBOTSTATE_ESTOP)
+
+    def test_link_timeout_aborts_active_coil_diagnostic(self):
+        self.h.transact(protocol_ids.MSG_SET_MODE, (230, protocol_ids.MODE_MANUAL))
+        self.h.poll()
+        self.h.poll()
+        self.h.transact(
+            protocol_ids.MSG_COIL_DIAGNOSTIC,
+            (
+                231,
+                protocol_ids.COILWHEEL_RIGHT,
+                protocol_ids.COILCHANNEL_A,
+                3000,
+            ),
+        )
+        self.h.poll()
+
+        response = self.h.poll(
+            advance=self.h.sim.HEARTBEAT_TIMEOUT_MS + 1
+        )
+        self.assertEqual(response["type"], protocol_ids.MSG_FAULT_EVENT)
+        self.assertIsNone(self.h.sim.active)
+        self.assertEqual(self.h.sim.state, protocol_ids.ROBOTSTATE_ESTOP)
+        aborted = self.h.poll()
+        self.assertEqual(
+            aborted["type"], protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT
+        )
+        values = unpack_payload(aborted["type"], aborted["payload"])
+        self.assertEqual(
+            values, (231, protocol_ids.COILDIAGNOSTICRESULT_ABORTED)
+        )
+
     def test_mode_move_and_completion(self):
         self.h.transact(protocol_ids.MSG_SET_MODE, (1, protocol_ids.MODE_MANUAL))
         ack = self.h.poll()
@@ -436,6 +573,16 @@ class StmSimulatorTests(unittest.TestCase):
         self.h.transact(protocol_ids.MSG_SET_MODE, (141, protocol_ids.MODE_MANUAL))
         self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_NACK)
         self.h.transact(protocol_ids.MSG_MOVE_WHEELS, (142, 10, 10, 100, 200, 500))
+        self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_NACK)
+        self.h.transact(
+            protocol_ids.MSG_COIL_DIAGNOSTIC,
+            (
+                146,
+                protocol_ids.COILWHEEL_RIGHT,
+                protocol_ids.COILCHANNEL_A,
+                3000,
+            ),
+        )
         self.assertEqual(self.h.poll()["type"], protocol_ids.MSG_NACK)
 
         self.h.transact(protocol_ids.MSG_STOP, (143, protocol_ids.ABORTREASON_STOP))

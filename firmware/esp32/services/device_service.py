@@ -19,6 +19,8 @@ RESOURCE_CHUNK_SIZE = 238
 RESOURCE_MAX_PACKAGE_SIZE = 504 * 1024
 IGNORED_RESULT_CAPACITY = 16
 IGNORED_MOTION_RESULT_CAPACITY = 16
+IGNORED_COIL_DIAGNOSTIC_RESULT_CAPACITY = 16
+CAPABILITY_COIL_DIAGNOSTIC = 0x20
 
 
 def _crc32(data):
@@ -52,6 +54,7 @@ class DeviceService:
             "fault_code": 0,
             "active_command_id": 0,
             "rx_errors": 0,
+            "capabilities": 0,
             "flash": None,
             "resource": None,
         }
@@ -63,6 +66,12 @@ class DeviceService:
         self._motion_waiters = {}
         self._ignored_motion_capacity = IGNORED_MOTION_RESULT_CAPACITY
         self._ignored_motion_results = {}
+        self._coil_diagnostic_results = {}
+        self._coil_diagnostic_waiters = {}
+        self._ignored_coil_diagnostic_capacity = (
+            IGNORED_COIL_DIAGNOSTIC_RESULT_CAPACITY
+        )
+        self._ignored_coil_diagnostic_results = {}
         self._listeners = []
         self._last_state_request = 0
         self._last_valid_rx = 0
@@ -114,6 +123,23 @@ class DeviceService:
     def _consume_ignored_motion_result(self, command_id):
         return self._ignored_motion_results.pop(command_id, None) is not None
 
+    def _ignore_coil_diagnostic_result(self, command_id):
+        if command_id in self._ignored_coil_diagnostic_results:
+            return
+        if (
+            len(self._ignored_coil_diagnostic_results)
+            >= self._ignored_coil_diagnostic_capacity
+        ):
+            oldest = next(iter(self._ignored_coil_diagnostic_results))
+            self._ignored_coil_diagnostic_results.pop(oldest, None)
+        self._ignored_coil_diagnostic_results[command_id] = True
+
+    def _consume_ignored_coil_diagnostic_result(self, command_id):
+        return (
+            self._ignored_coil_diagnostic_results.pop(command_id, None)
+            is not None
+        )
+
     def _queue_best_effort_stop(self):
         command_id = self.next_command_id()
         return self.mailbox.submit_urgent(
@@ -137,6 +163,9 @@ class DeviceService:
         self._motion_results.clear()
         self._motion_waiters.clear()
         self._ignored_motion_results.clear()
+        self._coil_diagnostic_results.clear()
+        self._coil_diagnostic_waiters.clear()
+        self._ignored_coil_diagnostic_results.clear()
         self._resource_status_results.clear()
         self._resource_status_waiters.clear()
         self._last_resource_status = None
@@ -155,6 +184,7 @@ class DeviceService:
             degraded_flags=0,
             fault_code=0,
             active_command_id=0,
+            capabilities=0,
             flash=None,
             resource=None,
         )
@@ -171,6 +201,7 @@ class DeviceService:
             self.connected = True
             self.status["connected"] = True
             self.status["stm_boot_id"] = stm_boot_id
+            self.status["capabilities"] = values[1]
             self.status["state"] = values[5]
             if values[5] in (
                 protocol_ids.MODE_IDLE,
@@ -267,6 +298,18 @@ class DeviceService:
             self._motion_results[command_id] = {
                 "ok": False,
                 "reason": values[1],
+            }
+        elif message_type == protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT:
+            command_id = values[0]
+            if self._consume_ignored_coil_diagnostic_result(command_id):
+                return
+            if command_id not in self._coil_diagnostic_waiters:
+                return
+            self._coil_diagnostic_waiters.pop(command_id, None)
+            self._coil_diagnostic_results[command_id] = {
+                "ok": values[1]
+                == protocol_ids.COILDIAGNOSTICRESULT_DONE,
+                "result": values[1],
             }
         elif message_type == protocol_ids.MSG_MODE_CHANGED:
             self.status["state"] = values[0]
@@ -394,6 +437,100 @@ class DeviceService:
         command_id = self.next_command_id()
         await self.command(protocol_ids.MSG_SET_MODE, (command_id, mode), command_id)
         return command_id
+
+    async def wait_coil_diagnostic(self, command_id, timeout_ms=3600):
+        session_generation = self._controller_session_generation
+        self._coil_diagnostic_waiters[command_id] = True
+        self._ignored_coil_diagnostic_results.pop(command_id, None)
+        started = ticks_ms()
+        resolved = False
+        try:
+            while command_id not in self._coil_diagnostic_results:
+                if session_generation != self._controller_session_generation:
+                    raise DeviceCommandError(
+                        "STM32 session changed", timed_out=True
+                    )
+                if ticks_diff(ticks_ms(), started) >= timeout_ms:
+                    raise DeviceCommandError(
+                        "coil diagnostic result timed out", timed_out=True
+                    )
+                await sleep_ms(10)
+            result = self._coil_diagnostic_results.pop(command_id)
+            resolved = True
+            return result
+        finally:
+            self._coil_diagnostic_waiters.pop(command_id, None)
+            self._coil_diagnostic_results.pop(command_id, None)
+            if not resolved:
+                self._ignore_coil_diagnostic_result(command_id)
+                if session_generation == self._controller_session_generation:
+                    self._queue_best_effort_stop()
+
+    async def diagnose_coil(self, wheel, channel, duration_ms=3000):
+        if isinstance(wheel, bool) or wheel not in (
+            protocol_ids.COILWHEEL_LEFT,
+            protocol_ids.COILWHEEL_RIGHT,
+        ):
+            raise ValueError("coil wheel is out of range")
+        if (
+            isinstance(channel, bool)
+            or not isinstance(channel, int)
+            or not (
+                protocol_ids.COILCHANNEL_A
+                <= channel
+                <= protocol_ids.COILCHANNEL_D
+            )
+        ):
+            raise ValueError("coil channel is out of range")
+        if (
+            isinstance(duration_ms, bool)
+            or not isinstance(duration_ms, int)
+            or not 100 <= duration_ms <= 3000
+        ):
+            raise ValueError("coil diagnostic duration is out of range")
+        if not (
+            self.status.get("capabilities", 0)
+            & CAPABILITY_COIL_DIAGNOSTIC
+        ):
+            raise DeviceCommandError(
+                "STM32 does not support coil diagnostics", rejected=True
+            )
+
+        command_id = self.next_command_id()
+        session_generation = self._controller_session_generation
+        self._ignored_coil_diagnostic_results.pop(command_id, None)
+        self._coil_diagnostic_waiters[command_id] = True
+        try:
+            try:
+                await self.command(
+                    protocol_ids.MSG_COIL_DIAGNOSTIC,
+                    (command_id, wheel, channel, duration_ms),
+                    command_id,
+                )
+            except DeviceCommandError as error:
+                if (
+                    error.timed_out
+                    and session_generation
+                    == self._controller_session_generation
+                ):
+                    self._queue_best_effort_stop()
+                raise
+            except asyncio.CancelledError:
+                if session_generation == self._controller_session_generation:
+                    self._queue_best_effort_stop()
+                raise
+
+            return await self.wait_coil_diagnostic(
+                command_id, duration_ms + 600
+            )
+        finally:
+            if (
+                command_id in self._coil_diagnostic_waiters
+                or command_id in self._coil_diagnostic_results
+            ):
+                self._coil_diagnostic_waiters.pop(command_id, None)
+                self._coil_diagnostic_results.pop(command_id, None)
+                self._ignore_coil_diagnostic_result(command_id)
 
     async def move(self, left_steps, right_steps, rate, accel=600, timeout_ms=2000):
         command_id = self.next_command_id()
