@@ -35,6 +35,7 @@ set(APP_SOURCES
   App/Core/robot_state.c
   App/Safety/safety_supervisor.c
   App/Motion/motion_service.c
+  App/Diagnostics/coil_diagnostic_service.c
   App/Input/ec11.c
   App/Input/input_policy.c
   App/Ui/ui_service.c
@@ -70,6 +71,7 @@ target_include_directories(desktop_robot PRIVATE
   App/Core
   App/Safety
   App/Motion
+  App/Diagnostics
   App/Input
   App/Ui
   App/Protocol

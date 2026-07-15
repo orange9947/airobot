@@ -50,6 +50,20 @@ target_link_libraries(test_robot_core PRIVATE robot_core_host)
 robot_apply_warnings(test_robot_core)
 add_test(NAME robot_core COMMAND test_robot_core)
 
+add_library(coil_diagnostic_host STATIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Diagnostics/coil_diagnostic_service.c
+)
+target_include_directories(coil_diagnostic_host PUBLIC
+  ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Diagnostics
+)
+robot_apply_warnings(coil_diagnostic_host)
+
+add_executable(test_coil_diagnostic_service unit/test_coil_diagnostic_service.c)
+target_include_directories(test_coil_diagnostic_service PRIVATE support)
+target_link_libraries(test_coil_diagnostic_service PRIVATE coil_diagnostic_host)
+robot_apply_warnings(test_coil_diagnostic_service)
+add_test(NAME coil_diagnostic COMMAND test_coil_diagnostic_service)
+
 add_library(face_animator_host STATIC
   ${PROJECT_SOURCE_DIR}/firmware/stm32/App/Ui/face_animator.c
 )
