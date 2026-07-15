@@ -22,6 +22,7 @@
     clearEstopBusy: false,
     authPhase: AUTH_READY,
     authSetupRequired: false,
+    setupNonce: "",
   };
 
   const stateNames = {
@@ -188,6 +189,7 @@
   function showAuth(setupRequired) {
     if (demoMode) return;
     state.authSetupRequired = Boolean(setupRequired);
+    if (!state.authSetupRequired) state.setupNonce = "";
     $("#auth-title").textContent = setupRequired ? "设置管理密码" : "登录机器人";
     $("#auth-eyebrow").textContent = setupRequired ? "FIRST BOOT" : "LOCAL DEVICE";
     $("#auth-password").autocomplete = setupRequired ? "new-password" : "current-password";
@@ -478,13 +480,16 @@
           AUTH_VERIFYING,
           state.authSetupRequired ? "正在创建本地管理凭据..." : "正在安全验证管理密码..."
         );
+        const loginBody = { password: $("#auth-password").value };
+        if (state.authSetupRequired) loginBody.setup_nonce = state.setupNonce;
         const result = await withTimeout((signal) => api("/api/v1/session/login", {
           method: "POST",
-          body: { password: $("#auth-password").value },
+          body: loginBody,
           signal,
         }));
         state.csrf = result.csrf;
         state.authenticated = true;
+        state.setupNonce = "";
         loginAccepted = true;
         $("#auth-password").value = "";
         await loadAuthenticatedConsole(result);
@@ -499,6 +504,8 @@
         message = "密码不正确";
       } else if (error.status === 401) {
         message = "登录会话已失效，请重新输入密码";
+      } else if (error.status === 403 && state.authSetupRequired) {
+        message = "初始化凭据已失效，请刷新页面后重试";
       } else if (error.status === 409) {
         message = "认证正在处理中，请稍后重试";
       } else if (state.authenticated) {
@@ -716,6 +723,7 @@
     }
     try {
       const initial = await api("/api/v1/bootstrap");
+      state.setupNonce = initial.setup_required ? (initial.setup_nonce || "") : "";
       showAuth(initial.setup_required);
     } catch (error) {
       showAuth(false);

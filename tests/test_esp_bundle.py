@@ -77,6 +77,8 @@ class EspBundleTests(unittest.TestCase):
         self.assertIn("AUTH_LOADING", javascript)
         self.assertIn("AbortController", javascript)
         self.assertIn("loadAuthenticatedConsole(result)", javascript)
+        self.assertIn("setupNonce", javascript)
+        self.assertIn("initial.setup_nonce", javascript)
         self.assertRegex(html, r'id="auth-password"[^>]*disabled')
         self.assertRegex(html, r'<button class="primary-command" type="submit" disabled>')
         self.assertIn('id="auth-form" aria-busy="true"', html)
