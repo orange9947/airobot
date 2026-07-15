@@ -18,6 +18,13 @@ class OpenAIProvider:
     def _url(self):
         return self.config["base_url"].rstrip("/") + "/v1/responses"
 
+    def _body(self, request_input, tools):
+        return {
+            "model": self.config["model"],
+            "input": request_input,
+            "tools": tools,
+        }
+
     def _parse(self, response, request_input):
         text_parts = []
         tool_calls = []
@@ -42,12 +49,7 @@ class OpenAIProvider:
         }
 
     async def create_turn(self, messages, tools):
-        body = {
-            "model": self.config["model"],
-            "input": messages,
-            "tools": tools,
-            "max_output_tokens": self.config.get("max_output_tokens", 256),
-        }
+        body = self._body(messages, tools)
         response = await self.client.post_json(
             self._url(), body, self._headers(), self.config.get("timeout_s", 60)
         )
@@ -59,12 +61,7 @@ class OpenAIProvider:
             for result in results
         ]
         request_input = list(continuation["input"]) + tool_outputs
-        body = {
-            "model": self.config["model"],
-            "input": request_input,
-            "tools": tools,
-            "max_output_tokens": self.config.get("max_output_tokens", 256),
-        }
+        body = self._body(request_input, tools)
         response = await self.client.post_json(
             self._url(), body, self._headers(), self.config.get("timeout_s", 60)
         )

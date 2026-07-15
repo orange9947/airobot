@@ -78,6 +78,9 @@ class LlmServiceTests(unittest.TestCase):
             )
             turn = await provider.create_turn(messages, TOOL_SCHEMAS)
             self.assertEqual(turn["tool_calls"][0]["name"], "robot_stop")
+            first_payload = client.requests[0][1]
+            self.assertNotIn("max_output_tokens", first_payload)
+            self.assertEqual(set(first_payload), {"model", "input", "tools"})
             second_turn = await provider.submit_tool_results(
                 turn["continuation"],
                 [{"call_id": "call-1", "output": {"ok": True}}],
@@ -87,6 +90,7 @@ class LlmServiceTests(unittest.TestCase):
             self.assertEqual(second_turn["tool_calls"][0]["name"], "robot_set_expression")
             second_payload = client.requests[1][1]
             self.assertNotIn("previous_response_id", second_payload)
+            self.assertNotIn("max_output_tokens", second_payload)
             self.assertEqual(second_payload["input"][:3], messages + first_output)
             self.assertEqual(second_payload["input"][-1]["type"], "function_call_output")
             self.assertEqual(second_payload["input"][-1]["call_id"], "call-1")
@@ -100,6 +104,7 @@ class LlmServiceTests(unittest.TestCase):
             self.assertEqual(final["text"], "Stopped and smiling.")
             third_payload = client.requests[2][1]
             self.assertNotIn("previous_response_id", third_payload)
+            self.assertNotIn("max_output_tokens", third_payload)
             self.assertEqual(third_payload["input"][:3], messages + first_output)
             self.assertIn(second_output[0], third_payload["input"])
             self.assertEqual(third_payload["input"][-1]["call_id"], "call-2")
@@ -126,6 +131,7 @@ class LlmServiceTests(unittest.TestCase):
             )
             turn = await provider.create_turn([{"role": "user", "content": "smile"}], TOOL_SCHEMAS)
             self.assertEqual(turn["tool_calls"][0]["arguments"]["expression"], "happy")
+            self.assertEqual(client.requests[0][1]["max_tokens"], 64)
             final = await provider.submit_tool_results(
                 turn["continuation"],
                 [{"call_id": "call-2", "output": {"ok": True}}],
@@ -134,6 +140,7 @@ class LlmServiceTests(unittest.TestCase):
             )
             self.assertEqual(final["text"], "Done.")
             self.assertEqual(client.requests[1][1]["messages"][-1]["role"], "tool")
+            self.assertEqual(client.requests[1][1]["max_tokens"], 64)
 
         asyncio.run(scenario())
 
