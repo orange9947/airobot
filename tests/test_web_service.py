@@ -6,7 +6,9 @@ import unittest
 from firmware.esp32.services.config_service import ConfigService
 from firmware.esp32.services.resource_service import ResourceServiceError
 from firmware.esp32.services.web_service import (
+    HTTP_ADMISSION_TIMEOUT_MS,
     MAX_HTTP_CLIENTS,
+    MAX_HTTP_WAITERS,
     SESSION_ABSOLUTE_TTL_MS,
     SESSION_IDLE_TTL_MS,
     ApiError,
@@ -656,7 +658,7 @@ class WebServiceTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_http_connection_limit_and_whole_request_deadline(self):
+    def test_http_waiter_uses_released_slot_and_whole_request_deadline(self):
         self.web._request_timeout_s = 0.05
 
         async def scenario():
@@ -670,18 +672,93 @@ class WebServiceTests(unittest.TestCase):
             await asyncio.sleep(0)
             self.assertEqual(self.web._active_http_clients, MAX_HTTP_CLIENTS)
 
+            queued_writer = FakeWriter()
+            queued = asyncio.create_task(
+                self.web._handle_client(
+                    FakeReader(b"GET / HTTP/1.1\r\n\r\n"), queued_writer
+                )
+            )
+            await asyncio.sleep(0)
+            self.assertEqual(self.web._waiting_http_clients, 1)
+            self.assertFalse(queued.done())
+
+            blocked[0].cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await blocked[0]
+            await queued
+            self.assertIn(b"200 OK", queued_writer.data)
+            self.assertTrue(queued_writer.closed)
+
+            await asyncio.gather(*blocked[1:])
+            self.assertEqual(self.web._active_http_clients, 0)
+            self.assertEqual(self.web._waiting_http_clients, 0)
+            for writer in blocked_writers[1:]:
+                self.assertIn(b"408 Request Timeout", writer.data)
+                self.assertTrue(writer.closed)
+
+        asyncio.run(scenario())
+
+    def test_http_admission_timeout_returns_503_and_cleans_wait_count(self):
+        self.assertEqual(HTTP_ADMISSION_TIMEOUT_MS, 3000)
+        self.web._request_timeout_s = 1
+        self.web._http_admission_timeout_ms = 1
+
+        async def scenario():
+            blocked_writers = [FakeWriter() for _ in range(MAX_HTTP_CLIENTS)]
+            blocked = [
+                asyncio.create_task(self.web._handle_client(BlockingReader(), writer))
+                for writer in blocked_writers
+            ]
+            await asyncio.sleep(0)
+
             overflow = FakeWriter()
             await self.web._handle_client(
                 FakeReader(b"GET / HTTP/1.1\r\n\r\n"), overflow
             )
             self.assertIn(b"503 Service Unavailable", overflow.data)
             self.assertTrue(overflow.closed)
+            self.assertEqual(self.web._waiting_http_clients, 0)
 
-            await asyncio.gather(*blocked)
+            for task in blocked:
+                task.cancel()
+            await asyncio.gather(*blocked, return_exceptions=True)
             self.assertEqual(self.web._active_http_clients, 0)
-            for writer in blocked_writers:
-                self.assertIn(b"408 Request Timeout", writer.data)
-                self.assertTrue(writer.closed)
+
+        asyncio.run(scenario())
+
+    def test_http_wait_queue_rejects_ninth_connection_and_cleans_cancellation(self):
+        self.web._request_timeout_s = 1
+        self.web._http_admission_timeout_ms = 1000
+
+        async def scenario():
+            blocked_writers = [FakeWriter() for _ in range(MAX_HTTP_CLIENTS)]
+            blocked = [
+                asyncio.create_task(self.web._handle_client(BlockingReader(), writer))
+                for writer in blocked_writers
+            ]
+            await asyncio.sleep(0)
+
+            waiting_writers = [FakeWriter() for _ in range(MAX_HTTP_WAITERS)]
+            waiting = [
+                asyncio.create_task(self.web._handle_client(BlockingReader(), writer))
+                for writer in waiting_writers
+            ]
+            await asyncio.sleep(0)
+            self.assertEqual(self.web._waiting_http_clients, MAX_HTTP_WAITERS)
+
+            rejected = FakeWriter()
+            await self.web._handle_client(
+                FakeReader(b"GET / HTTP/1.1\r\n\r\n"), rejected
+            )
+            self.assertIn(b"503 Service Unavailable", rejected.data)
+            self.assertTrue(rejected.closed)
+
+            for task in blocked + waiting:
+                task.cancel()
+            await asyncio.gather(*(blocked + waiting), return_exceptions=True)
+            self.assertEqual(self.web._active_http_clients, 0)
+            self.assertEqual(self.web._waiting_http_clients, 0)
+            self.assertTrue(all(writer.closed for writer in blocked_writers + waiting_writers))
 
         asyncio.run(scenario())
 

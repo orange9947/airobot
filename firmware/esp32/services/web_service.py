@@ -27,7 +27,10 @@ MAX_HEADER_LINE = 1024
 MAX_HEADER_BYTES = 4096
 MAX_HEADER_COUNT = 32
 MAX_HTTP_CLIENTS = 4
+MAX_HTTP_WAITERS = 4
 MAX_WEBSOCKET_CLIENTS = 2
+HTTP_ADMISSION_TIMEOUT_MS = 3000
+HTTP_ADMISSION_POLL_MS = 10
 REQUEST_READ_TIMEOUT_S = 10
 WEBSOCKET_WRITE_TIMEOUT_S = 0.25
 HTTP_CLOSE_TIMEOUT_S = 0.25
@@ -109,6 +112,7 @@ class WebService:
         sleep=None,
         request_timeout_s=REQUEST_READ_TIMEOUT_S,
         websocket_write_timeout_s=WEBSOCKET_WRITE_TIMEOUT_S,
+        http_admission_timeout_ms=HTTP_ADMISSION_TIMEOUT_MS,
     ):
         self.config = config
         self.device = device
@@ -128,7 +132,9 @@ class WebService:
         self._sleep = sleep or sleep_ms
         self._request_timeout_s = request_timeout_s
         self._websocket_write_timeout_s = websocket_write_timeout_s
+        self._http_admission_timeout_ms = http_admission_timeout_ms
         self._active_http_clients = 0
+        self._waiting_http_clients = 0
 
     def publish(self, event):
         if len(self.events) >= self.event_capacity:
@@ -692,24 +698,48 @@ class WebService:
             except Exception:
                 self._discard_websocket(writer)
 
-    async def _handle_client(self, reader, writer):
-        if self._active_http_clients >= MAX_HTTP_CLIENTS:
-            try:
-                await asyncio.wait_for(
-                    self._write_response(
-                        writer,
-                        503,
-                        _json_bytes({"error": "too many connections"}),
-                    ),
-                    HTTP_CLOSE_TIMEOUT_S,
-                )
-            except Exception:
-                pass
-            finally:
-                writer.close()
-            return
-        self._active_http_clients += 1
+    async def _acquire_http_slot(self):
+        if self._active_http_clients < MAX_HTTP_CLIENTS:
+            self._active_http_clients += 1
+            return True
+        if self._waiting_http_clients >= MAX_HTTP_WAITERS:
+            return False
+
+        started = self._clock()
+        queued = True
+        self._waiting_http_clients += 1
         try:
+            while self._active_http_clients >= MAX_HTTP_CLIENTS:
+                elapsed = ticks_diff(self._clock(), started)
+                if elapsed >= self._http_admission_timeout_ms:
+                    return False
+                remaining = self._http_admission_timeout_ms - elapsed
+                await self._sleep(min(HTTP_ADMISSION_POLL_MS, remaining))
+            self._waiting_http_clients -= 1
+            queued = False
+            self._active_http_clients += 1
+            return True
+        finally:
+            if queued:
+                self._waiting_http_clients -= 1
+
+    async def _handle_client(self, reader, writer):
+        slot_acquired = False
+        try:
+            slot_acquired = await self._acquire_http_slot()
+            if not slot_acquired:
+                try:
+                    await asyncio.wait_for(
+                        self._write_response(
+                            writer,
+                            503,
+                            _json_bytes({"error": "too many connections"}),
+                        ),
+                        HTTP_CLOSE_TIMEOUT_S,
+                    )
+                except Exception:
+                    pass
+                return
             try:
                 request = await asyncio.wait_for(
                     self._read_request(reader), self._request_timeout_s
@@ -736,7 +766,8 @@ class WebService:
                 writer, 500, _json_bytes({"error": "internal server error"})
             )
         finally:
-            self._active_http_clients -= 1
+            if slot_acquired:
+                self._active_http_clients -= 1
             writer.close()
             if hasattr(writer, "wait_closed"):
                 try:
