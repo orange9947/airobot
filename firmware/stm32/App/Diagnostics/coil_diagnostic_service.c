@@ -30,13 +30,13 @@ bool coil_diagnostic_service_start(coil_diagnostic_service_t *service,
         return false;
     }
 
-    service->active = true;
     service->command_id = command_id;
     service->started_ms = now_ms;
     service->duration_ms = duration_ms;
     service->wheel = wheel;
     service->channel = channel;
     service->result = COIL_DIAGNOSTIC_RESULT_NONE;
+    service->active = true;
     pattern = (uint8_t)(1u << (uint8_t)channel);
     service->apply(wheel == COIL_DIAGNOSTIC_WHEEL_LEFT ? pattern : 0u,
                    wheel == COIL_DIAGNOSTIC_WHEEL_RIGHT ? pattern : 0u,

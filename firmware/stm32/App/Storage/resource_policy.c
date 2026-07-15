@@ -7,8 +7,8 @@ bool resource_policy_update_active(storage_service_state_t state) {
 
 bool resource_policy_can_begin(robot_state_value_t robot_state,
                                storage_service_state_t storage_state,
-                               bool link_healthy, bool motion_active) {
-    return link_healthy && !motion_active &&
+                               bool link_healthy, bool motor_outputs_active) {
+    return link_healthy && !motor_outputs_active &&
            storage_state == STORAGE_SERVICE_IDLE &&
            (robot_state == ROBOT_STATE_IDLE ||
             robot_state == ROBOT_STATE_ESTOP);

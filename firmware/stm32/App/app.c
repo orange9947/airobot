@@ -5,6 +5,7 @@
 
 #include "board.h"
 #include "board_pins.h"
+#include "coil_diagnostic_service.h"
 #include "controller_session_policy.h"
 #include "ec11.h"
 #include "input_policy.h"
@@ -25,13 +26,22 @@
 
 #define DEGRADED_OLED 0x0001u
 #define DEGRADED_FLASH 0x0002u
-#define CAPABILITIES 0x0000001Fu
+#define CAPABILITY_COIL_DIAGNOSTIC 0x00000020u
+#define CAPABILITIES (0x0000001Fu | CAPABILITY_COIL_DIAGNOSTIC)
 #define DEDUP_CAPACITY 8u
 
 _Static_assert(STORAGE_SERVICE_BOOT_SCAN == ROBOT_RESOURCESTATE_BOOT_SCAN,
                "resource state IDs must match the wire protocol");
 _Static_assert(STORAGE_SERVICE_FAILED == ROBOT_RESOURCESTATE_FAILED,
                "resource state IDs must match the wire protocol");
+_Static_assert(COIL_DIAGNOSTIC_WHEEL_LEFT == ROBOT_COILWHEEL_LEFT,
+               "coil wheel IDs must match the wire protocol");
+_Static_assert(COIL_DIAGNOSTIC_WHEEL_RIGHT == ROBOT_COILWHEEL_RIGHT,
+               "coil wheel IDs must match the wire protocol");
+_Static_assert(COIL_DIAGNOSTIC_CHANNEL_A == ROBOT_COILCHANNEL_A,
+               "coil channel IDs must match the wire protocol");
+_Static_assert(COIL_DIAGNOSTIC_CHANNEL_D == ROBOT_COILCHANNEL_D,
+               "coil channel IDs must match the wire protocol");
 
 typedef struct {
     bool valid;
@@ -51,6 +61,7 @@ typedef struct {
     robot_state_t state;
     safety_supervisor_t safety;
     motion_service_t motion;
+    coil_diagnostic_service_t coil_diagnostic;
     ec11_t encoder;
     input_policy_t input_policy;
     ui_service_t ui;
@@ -71,12 +82,17 @@ typedef struct {
     session_peer_epoch_t esp_epoch;
     bool controller_session_active;
     motion_result_t reported_motion_result;
+    coil_diagnostic_result_t reported_coil_diagnostic_result;
     uint32_t loaded_resource_generation;
     uint16_t resource_request_error;
     bool face_resources_loaded;
 } app_context_t;
 
 static app_context_t app;
+
+static bool motor_outputs_active(void) {
+    return app.motion.active || app.coil_diagnostic.active;
+}
 
 static bool resource_update_active(void) {
     storage_service_status_t status;
@@ -190,7 +206,13 @@ static void queue_state_snapshot(void) {
     payload[9] = (uint8_t)app.input_policy.candidate_mode;
     robot_write_u16_le(&payload[10], app.state.degraded_flags);
     robot_write_u16_le(&payload[12], app.state.fault_code);
-    robot_write_u32_le(&payload[14], app.motion.active ? app.motion.command_id : 0u);
+    robot_write_u32_le(
+        &payload[14],
+        app.motion.active
+            ? app.motion.command_id
+            : (app.coil_diagnostic.active
+                   ? app.coil_diagnostic.command_id
+                   : 0u));
     robot_write_u16_le(&payload[18], (uint16_t)app.mailbox.errors);
     payload[20] = app.mailbox.queue_count;
     payload[21] = 0u;
@@ -323,10 +345,18 @@ static bool storage_error_degrades_flash(storage_service_error_t error) {
            error == STORAGE_SERVICE_ERROR_FLASH_TIMEOUT;
 }
 
-static void stop_motion(motion_result_t result) {
+static void stop_motor_outputs(motion_result_t motion_result,
+                               coil_diagnostic_result_t diagnostic_result) {
+    bool had_active_output = motor_outputs_active();
+
     if (app.motion.active) {
-        motion_service_abort(&app.motion, result);
-    } else {
+        motion_service_abort(&app.motion, motion_result);
+    }
+    if (app.coil_diagnostic.active) {
+        coil_diagnostic_service_abort(
+            &app.coil_diagnostic, diagnostic_result);
+    }
+    if (!had_active_output) {
         uln2003_hw_off();
     }
 }
@@ -338,7 +368,8 @@ static void handle_hello(const robot_spi_slot_view_t *slot, uint32_t now_ms) {
         session_peer_epoch_observe(&app.esp_epoch, esp_boot_id);
 
     if (peer_result == SESSION_PEER_CHANGED) {
-        stop_motion(MOTION_RESULT_ABORTED);
+        stop_motor_outputs(MOTION_RESULT_ABORTED,
+                           COIL_DIAGNOSTIC_RESULT_ABORTED);
         storage_service_link_lost(&app.storage, now_ms);
         clear_dedup();
     }
@@ -372,7 +403,8 @@ static void handle_set_mode(const robot_spi_slot_view_t *slot) {
     } else if (!robot_state_request_mode(&app.state, mode)) {
         error = ROBOT_ERRORCODE_BAD_STATE;
     } else {
-        stop_motion(MOTION_RESULT_ABORTED);
+        stop_motor_outputs(MOTION_RESULT_ABORTED,
+                           COIL_DIAGNOSTIC_RESULT_ABORTED);
         input_policy_sync_mode(&app.input_policy, mode);
     }
     finish_command(slot->type, id, slot->seq, error);
@@ -398,6 +430,8 @@ static void handle_move(const robot_spi_slot_view_t *slot, uint32_t now_ms) {
         error = ROBOT_ERRORCODE_BAD_STATE;
     } else if (app.state.value != ROBOT_STATE_MANUAL && app.state.value != ROBOT_STATE_AI) {
         error = ROBOT_ERRORCODE_BAD_STATE;
+    } else if (app.coil_diagnostic.active) {
+        error = ROBOT_ERRORCODE_QUEUE_FULL;
     } else if (rate > app.soft_rate_sps || accel > app.soft_accel_sps2) {
         error = ROBOT_ERRORCODE_OUT_OF_RANGE;
     } else if (!motion_service_start(&app.motion, id, left_steps, right_steps, rate,
@@ -413,12 +447,48 @@ static void handle_move(const robot_spi_slot_view_t *slot, uint32_t now_ms) {
     }
 }
 
+static void handle_coil_diagnostic(const robot_spi_slot_view_t *slot,
+                                   uint32_t now_ms) {
+    uint32_t id = command_id(slot);
+    uint8_t wheel = slot->payload[4];
+    uint8_t channel = slot->payload[5];
+    uint16_t duration_ms = robot_read_u16_le(&slot->payload[6]);
+    uint16_t error = ROBOT_ERRORCODE_OK;
+
+    if (replay_duplicate(slot->type, id, slot->seq)) {
+        return;
+    }
+    if (resource_update_active() || !app.safety.link_healthy ||
+        app.state.value != ROBOT_STATE_MANUAL) {
+        error = ROBOT_ERRORCODE_BAD_STATE;
+    } else if (motor_outputs_active()) {
+        error = ROBOT_ERRORCODE_QUEUE_FULL;
+    } else if (wheel > ROBOT_COILWHEEL_RIGHT ||
+               channel > ROBOT_COILCHANNEL_D ||
+               duration_ms < COIL_DIAGNOSTIC_MIN_DURATION_MS ||
+               duration_ms > COIL_DIAGNOSTIC_MAX_DURATION_MS) {
+        error = ROBOT_ERRORCODE_OUT_OF_RANGE;
+    } else if (!coil_diagnostic_service_start(
+                   &app.coil_diagnostic, id,
+                   (coil_diagnostic_wheel_t)wheel,
+                   (coil_diagnostic_channel_t)channel,
+                   duration_ms, now_ms)) {
+        error = ROBOT_ERRORCODE_INTERNAL;
+    }
+    finish_command(slot->type, id, slot->seq, error);
+    if (error == ROBOT_ERRORCODE_OK) {
+        app.reported_coil_diagnostic_result =
+            COIL_DIAGNOSTIC_RESULT_NONE;
+    }
+}
+
 static void handle_stop(const robot_spi_slot_view_t *slot) {
     uint32_t id = command_id(slot);
     if (replay_duplicate(slot->type, id, slot->seq)) {
         return;
     }
-    stop_motion(MOTION_RESULT_ABORTED);
+    stop_motor_outputs(MOTION_RESULT_ABORTED,
+                       COIL_DIAGNOSTIC_RESULT_ABORTED);
     safety_supervisor_stop(&app.safety, &app.state, SAFETY_REASON_REMOTE_STOP);
     finish_command(slot->type, id, slot->seq, ROBOT_ERRORCODE_OK);
 }
@@ -447,7 +517,7 @@ static void handle_clear_estop(const robot_spi_slot_view_t *slot) {
     if (replay_duplicate(slot->type, id, slot->seq)) {
         return;
     }
-    if (!app.motion.active &&
+    if (!motor_outputs_active() &&
         robot_state_clear_estop(&app.state, app.safety.link_healthy, true, true)) {
         app.expression = ROBOT_EXPRESSION_NEUTRAL;
         ui_service_set_expression(&app.ui, ROBOT_EXPRESSION_NEUTRAL, board_millis());
@@ -497,7 +567,7 @@ static void handle_resource_begin(const robot_spi_slot_view_t *slot,
     storage_service_get_status(&app.storage, &status);
     if (!resource_policy_can_begin(
             app.state.value, status.state, app.safety.link_healthy,
-            app.motion.active)) {
+            motor_outputs_active())) {
         app.resource_request_error = ROBOT_RESOURCEERROR_BAD_STATE;
     } else if (format_version != RESOURCE_FORMAT_VERSION) {
         result = STORAGE_SERVICE_RESULT_BAD_LENGTH;
@@ -608,6 +678,9 @@ static void route_slot(const robot_spi_slot_view_t *slot, uint32_t now_ms) {
         case ROBOT_MSG_MOVE_WHEELS:
             handle_move(slot, now_ms);
             break;
+        case ROBOT_MSG_COIL_DIAGNOSTIC:
+            handle_coil_diagnostic(slot, now_ms);
+            break;
         case ROBOT_MSG_STOP:
             handle_stop(slot);
             break;
@@ -670,6 +743,26 @@ static void report_motion_result(void) {
     }
 }
 
+static void report_coil_diagnostic_result(void) {
+    uint8_t payload[ROBOT_PAYLOAD_LEN_COIL_DIAGNOSTIC_RESULT] = {0};
+    uint8_t result;
+
+    if (app.coil_diagnostic.result == COIL_DIAGNOSTIC_RESULT_NONE ||
+        app.coil_diagnostic.result ==
+            app.reported_coil_diagnostic_result) {
+        return;
+    }
+    app.reported_coil_diagnostic_result = app.coil_diagnostic.result;
+    result = app.coil_diagnostic.result == COIL_DIAGNOSTIC_RESULT_DONE
+                 ? ROBOT_COILDIAGNOSTICRESULT_DONE
+                 : ROBOT_COILDIAGNOSTICRESULT_ABORTED;
+    robot_write_u32_le(&payload[0], app.coil_diagnostic.command_id);
+    payload[4] = result;
+    queue_message(ROBOT_MSG_COIL_DIAGNOSTIC_RESULT,
+                  ROBOT_SLOTFLAGS_EVENT, payload, sizeof(payload),
+                  result == ROBOT_COILDIAGNOSTICRESULT_ABORTED);
+}
+
 static bool encoder_switch_high(void) {
 #if BOARD_ENCODER_BUTTON_PRESENT
     return HAL_GPIO_ReadPin(ENCODER_SW_PORT, ENCODER_SW_PIN) == GPIO_PIN_SET;
@@ -688,13 +781,15 @@ static void handle_encoder_event(void) {
             if (resource_update_active() && action.mode != ROBOT_STATE_IDLE) {
                 input_policy_sync_mode(&app.input_policy, ROBOT_STATE_IDLE);
             } else if (robot_state_request_mode(&app.state, action.mode)) {
-                stop_motion(MOTION_RESULT_ABORTED);
+                stop_motor_outputs(MOTION_RESULT_ABORTED,
+                                   COIL_DIAGNOSTIC_RESULT_ABORTED);
                 input_policy_sync_mode(&app.input_policy, action.mode);
                 queue_mode_changed(2u);
             }
             break;
         case INPUT_POLICY_ACTION_ESTOP:
-            stop_motion(MOTION_RESULT_ABORTED);
+            stop_motor_outputs(MOTION_RESULT_ABORTED,
+                               COIL_DIAGNOSTIC_RESULT_ABORTED);
             safety_supervisor_stop(&app.safety, &app.state, SAFETY_REASON_LOCAL_STOP);
             break;
         case INPUT_POLICY_ACTION_CLEAR_ESTOP:
@@ -781,6 +876,8 @@ bool app_init(void) {
                       ROBOT_STATE_IDLE);
     safety_supervisor_init(&app.safety);
     motion_service_init(&app.motion, uln2003_hw_apply, NULL);
+    coil_diagnostic_service_init(
+        &app.coil_diagnostic, uln2003_hw_apply, NULL);
     ec11_init(&app.encoder,
               HAL_GPIO_ReadPin(ENCODER_A_PORT, ENCODER_A_PIN) == GPIO_PIN_SET,
               HAL_GPIO_ReadPin(ENCODER_B_PORT, ENCODER_B_PIN) == GPIO_PIN_SET,
@@ -800,6 +897,8 @@ bool app_init(void) {
 void app_timer_1ms_isr(void) {
     ec11_event_t event;
     motion_service_tick_1ms(&app.motion, HAL_GetTick());
+    coil_diagnostic_service_tick_1ms(
+        &app.coil_diagnostic, HAL_GetTick());
     event = ec11_sample_1ms(
         &app.encoder,
         HAL_GPIO_ReadPin(ENCODER_A_PORT, ENCODER_A_PIN) == GPIO_PIN_SET,
@@ -825,7 +924,8 @@ void app_process(void) {
     }
 
     if (safety_supervisor_tick(&app.safety, &app.state, now_ms)) {
-        stop_motion(MOTION_RESULT_ABORTED);
+        stop_motor_outputs(MOTION_RESULT_ABORTED,
+                           COIL_DIAGNOSTIC_RESULT_ABORTED);
         storage_service_link_lost(&app.storage, now_ms);
     }
     storage_service_tick(&app.storage, now_ms);
@@ -834,6 +934,7 @@ void app_process(void) {
         handle_encoder_event();
     }
     report_motion_result();
+    report_coil_diagnostic_result();
     ui_service_set_status(&app.ui, app.state.value, app.safety.link_healthy);
     ui_service_tick(&app.ui, now_ms);
     board_status_led_set(app.safety.link_healthy);
