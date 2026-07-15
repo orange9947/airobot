@@ -22,6 +22,7 @@ class MailboxClient:
         self._queue_capacity = 8
         self._queue = deque((), self._queue_capacity)
         self._pending = None
+        self._urgent = None
         self._last_heartbeat = 0
         self.rx_errors = 0
         self.events = deque((), 16)
@@ -32,12 +33,12 @@ class MailboxClient:
             self._seq = 1
         return self._seq
 
-    def submit(self, message_type, values, command_id=0, flags=None, expected_type=None):
-        if len(self._queue) >= self._queue_capacity:
-            raise RuntimeError("mailbox command queue full")
+    def _new_item(
+        self, message_type, values, command_id, flags, expected_type, urgent=False
+    ):
         if flags is None:
             flags = protocol_ids.SLOTFLAGS_ACK_REQUEST
-        item = {
+        return {
             "type": message_type,
             "seq": self._next_seq(),
             "flags": flags,
@@ -46,9 +47,31 @@ class MailboxClient:
             "sent_ms": None,
             "retries": 0,
             "expected_type": expected_type,
+            "urgent": bool(urgent),
         }
+
+    def submit(self, message_type, values, command_id=0, flags=None, expected_type=None):
+        if len(self._queue) >= self._queue_capacity:
+            raise RuntimeError("mailbox command queue full")
+        item = self._new_item(
+            message_type, values, command_id, flags, expected_type
+        )
         self._queue.append(item)
         return item["seq"]
+
+    def submit_urgent(self, message_type, values, command_id=0, flags=None):
+        if self._urgent is not None:
+            if self._urgent["type"] != message_type:
+                raise RuntimeError("mailbox urgent slot is occupied")
+            return self._urgent["seq"]
+        if self._pending is not None and self._pending.get("urgent"):
+            if self._pending["type"] != message_type:
+                raise RuntimeError("mailbox urgent slot is occupied")
+            return self._pending["seq"]
+        self._urgent = self._new_item(
+            message_type, values, command_id, flags, None, urgent=True
+        )
+        return self._urgent["seq"]
 
     def hello(self):
         return self.submit(
@@ -61,7 +84,42 @@ class MailboxClient:
     def request(self, message_type, values, expected_type):
         return self.submit(message_type, values, 0, flags=0, expected_type=expected_type)
 
+    def cancel(self, seq):
+        if self._urgent is not None and self._urgent["seq"] == seq:
+            self._urgent = None
+            return True
+        if self._pending is not None and self._pending["seq"] == seq:
+            self._pending = None
+            return True
+
+        cancelled = False
+        queued_count = len(self._queue)
+        for _index in range(queued_count):
+            item = self._queue.popleft()
+            if not cancelled and item["seq"] == seq:
+                cancelled = True
+            else:
+                self._queue.append(item)
+        return cancelled
+
+    def reset_session(self):
+        """Discard traffic that belongs to a previous STM32 boot session."""
+        self._queue.clear()
+        self._pending = None
+        self._urgent = None
+        self.events.clear()
+        self._last_heartbeat = 0
+
     def _select_tx(self, now_ms):
+        if self._urgent is not None:
+            if self._pending is not None and not self._pending.get("urgent"):
+                preempted = self._pending
+                self._pending = None
+                self.events.append({"kind": "preempted", "command": preempted})
+            if self._pending is None:
+                self._pending = self._urgent
+                self._urgent = None
+
         if self._pending is None and self._queue:
             self._pending = self._queue.popleft()
 
