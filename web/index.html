@@ -220,6 +220,54 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <script src="/app.js" defer></script>
+  <script>
+    (function () {
+      "use strict";
+      var complete = false;
+      var status = document.getElementById("auth-status");
+      var form = document.getElementById("auth-form");
+      var error = document.getElementById("auth-error");
+      var submitLabel = document.getElementById("auth-submit-label");
+      var submitIcon = document.getElementById("auth-submit-icon");
+
+      function fail(message, detail) {
+        if (complete) return;
+        status.textContent = message;
+        error.textContent = detail;
+        form.setAttribute("aria-busy", "false");
+        submitLabel.textContent = "加载失败";
+        submitIcon.className = "";
+      }
+
+      function errorName(value) {
+        return value && value.name ? String(value.name) : "Error";
+      }
+
+      function handleError(event) {
+        var line = event && Number(event.lineno);
+        var detail = errorName(event && event.error);
+        if (line) detail += "（第 " + line + " 行）";
+        fail("控制程序启动失败", detail);
+      }
+
+      function handleRejection(event) {
+        fail("控制程序启动失败", errorName(event && event.reason));
+      }
+
+      window.__robotStartupScriptError = function () {
+        fail("控制程序加载失败", "请刷新页面重试");
+      };
+      window.__robotStartupComplete = function () {
+        if (complete) return;
+        complete = true;
+        window.removeEventListener("error", handleError);
+        window.removeEventListener("unhandledrejection", handleRejection);
+      };
+      window.addEventListener("error", handleError);
+      window.addEventListener("unhandledrejection", handleRejection);
+      status.textContent = "正在加载控制程序...";
+    }());
+  </script>
+  <script src="/app.js?v=__APP_ASSET_VERSION__" defer onerror="window.__robotStartupScriptError()"></script>
 </body>
 </html>

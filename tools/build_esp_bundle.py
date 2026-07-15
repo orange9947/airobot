@@ -2,12 +2,14 @@
 """Build the MicroPython filesystem bundle without host-only files."""
 
 import argparse
+import hashlib
 import json
 import shutil
 from pathlib import Path
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
+APP_ASSET_VERSION_PLACEHOLDER = "__APP_ASSET_VERSION__"
 
 
 def copy_python_tree(source, destination):
@@ -15,6 +17,19 @@ def copy_python_tree(source, destination):
         source,
         destination,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+
+
+def version_web_assets(web_root):
+    javascript = (web_root / "app.js").read_bytes()
+    version = hashlib.sha256(javascript).hexdigest()[:12]
+    index_path = web_root / "index.html"
+    html = index_path.read_text(encoding="utf-8")
+    if html.count(APP_ASSET_VERSION_PLACEHOLDER) != 1:
+        raise ValueError("index.html must contain exactly one app asset version placeholder")
+    index_path.write_text(
+        html.replace(APP_ASSET_VERSION_PLACEHOLDER, version),
+        encoding="utf-8",
     )
 
 
@@ -37,6 +52,7 @@ def build_bundle(output):
         )
 
     shutil.copytree(REPOSITORY / "web", output / "www")
+    version_web_assets(output / "www")
     shutil.copy2(REPOSITORY / "firmware" / "esp32" / "boot.py", output / "boot.py")
     shutil.copy2(REPOSITORY / "firmware" / "esp32" / "main.py", output / "main.py")
 

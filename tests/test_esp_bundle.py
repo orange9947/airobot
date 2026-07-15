@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -20,6 +21,30 @@ class EspBundleTests(unittest.TestCase):
             self.assertTrue((output / "protocol" / "generated" / "protocol_ids.py").is_file())
             self.assertFalse((output / "firmware" / "stm32").exists())
             self.assertFalse(any("__pycache__" in name for name in manifest["files"]))
+
+    def test_bundle_versions_app_javascript_from_content_digest(self):
+        source_html = (PROJECT_ROOT / "web" / "index.html").read_text()
+        source_javascript = (PROJECT_ROOT / "web" / "app.js").read_bytes()
+        expected_version = hashlib.sha256(source_javascript).hexdigest()[:12]
+
+        self.assertEqual(source_html.count("__APP_ASSET_VERSION__"), 1)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = build_bundle(Path(temporary) / "bundle")
+            bundled_html = (output / "www" / "index.html").read_text()
+
+        self.assertNotIn("__APP_ASSET_VERSION__", bundled_html)
+        self.assertIn('/app.js?v={}"'.format(expected_version), bundled_html)
+
+    def test_web_startup_diagnostics_contract(self):
+        html = (PROJECT_ROOT / "web" / "index.html").read_text()
+        javascript = (PROJECT_ROOT / "web" / "app.js").read_text()
+
+        self.assertIn("正在加载控制程序...", html)
+        self.assertIn("__robotStartupScriptError", html)
+        self.assertIn("__robotStartupComplete", html)
+        self.assertIn("__robotStartupComplete", javascript)
+        self.assertIn("控制程序加载失败", html)
+        self.assertIn("控制程序启动失败", html)
 
     def test_mobile_navigation_and_first_run_settings_contract(self):
         html = (PROJECT_ROOT / "web" / "index.html").read_text()

@@ -102,6 +102,12 @@
     $("#event-count").textContent = `${state.events.length} EVENTS`;
   }
 
+  function completeStartupProbe() {
+    if (typeof window.__robotStartupComplete === "function") {
+      window.__robotStartupComplete();
+    }
+  }
+
   async function api(path, options) {
     if (demoMode) return demoApi(path, options || {});
     const request = Object.assign({ method: "GET", headers: {} }, options || {});
@@ -712,6 +718,8 @@
   async function bootstrap() {
     bindUi();
     renderEvents();
+    $("#auth-status").textContent = "正在连接机器人...";
+    completeStartupProbe();
     if (demoMode) {
       $("#auth-layer").classList.add("hidden");
       state.config = JSON.parse(JSON.stringify(demoConfig));
