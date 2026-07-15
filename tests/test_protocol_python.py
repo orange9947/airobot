@@ -31,6 +31,31 @@ class ProtocolPythonTests(unittest.TestCase):
         self.assertEqual(protocol_ids.MESSAGE_FORMATS[protocol_ids.MSG_CLEAR_ESTOP], "<I")
         self.assertEqual(protocol_ids.MESSAGE_LENGTHS[protocol_ids.MSG_CLEAR_ESTOP], 4)
 
+    def test_coil_diagnostic_layouts(self):
+        self.assertEqual(protocol_ids.COILWHEEL_LEFT, 0)
+        self.assertEqual(protocol_ids.COILWHEEL_RIGHT, 1)
+        self.assertEqual(protocol_ids.COILCHANNEL_A, 0)
+        self.assertEqual(protocol_ids.COILCHANNEL_D, 3)
+        self.assertEqual(protocol_ids.COILDIAGNOSTICRESULT_DONE, 0)
+        self.assertEqual(protocol_ids.COILDIAGNOSTICRESULT_ABORTED, 1)
+        self.assertEqual(protocol_ids.MSG_COIL_DIAGNOSTIC, 0x0207)
+        self.assertEqual(protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT, 0x0308)
+        self.assertEqual(
+            protocol_ids.MESSAGE_FORMATS[protocol_ids.MSG_COIL_DIAGNOSTIC],
+            "<IBBH",
+        )
+        self.assertEqual(
+            protocol_ids.MESSAGE_LENGTHS[protocol_ids.MSG_COIL_DIAGNOSTIC], 8
+        )
+        self.assertEqual(
+            protocol_ids.MESSAGE_FORMATS[protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT],
+            "<IB",
+        )
+        self.assertEqual(
+            protocol_ids.MESSAGE_LENGTHS[protocol_ids.MSG_COIL_DIAGNOSTIC_RESULT],
+            5,
+        )
+
     def test_resource_message_layouts(self):
         self.assertEqual(protocol_ids.RESOURCESTATE_BOOT_SCAN, 0)
         self.assertEqual(protocol_ids.RESOURCESTATE_FAILED, 9)

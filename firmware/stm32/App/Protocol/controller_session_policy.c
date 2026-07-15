@@ -15,6 +15,7 @@ controller_session_route_t controller_session_route_policy(
         case ROBOT_MSG_SET_EXPRESSION:
         case ROBOT_MSG_SET_RUNTIME_CONFIG:
         case ROBOT_MSG_CLEAR_ESTOP:
+        case ROBOT_MSG_COIL_DIAGNOSTIC:
         case ROBOT_MSG_RESOURCE_BEGIN:
         case ROBOT_MSG_RESOURCE_CHUNK:
         case ROBOT_MSG_RESOURCE_FINISH:

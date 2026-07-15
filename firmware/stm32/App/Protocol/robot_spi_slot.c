@@ -60,6 +60,8 @@ uint16_t robot_protocol_payload_length(uint16_t type) {
             return ROBOT_PAYLOAD_LEN_SET_RUNTIME_CONFIG;
         case ROBOT_MSG_CLEAR_ESTOP:
             return ROBOT_PAYLOAD_LEN_CLEAR_ESTOP;
+        case ROBOT_MSG_COIL_DIAGNOSTIC:
+            return ROBOT_PAYLOAD_LEN_COIL_DIAGNOSTIC;
         case ROBOT_MSG_ACK:
             return ROBOT_PAYLOAD_LEN_ACK;
         case ROBOT_MSG_NACK:
@@ -74,6 +76,8 @@ uint16_t robot_protocol_payload_length(uint16_t type) {
             return ROBOT_PAYLOAD_LEN_MODE_CHANGED;
         case ROBOT_MSG_FAULT_EVENT:
             return ROBOT_PAYLOAD_LEN_FAULT_EVENT;
+        case ROBOT_MSG_COIL_DIAGNOSTIC_RESULT:
+            return ROBOT_PAYLOAD_LEN_COIL_DIAGNOSTIC_RESULT;
         case ROBOT_MSG_FLASH_INFO:
             return ROBOT_PAYLOAD_LEN_FLASH_INFO;
         case ROBOT_MSG_RESOURCE_BEGIN:

@@ -21,6 +21,23 @@ static int test_clear_estop_layout(void) {
     return 0;
 }
 
+static int test_coil_diagnostic_layouts(void) {
+    TEST_ASSERT_EQ(0u, ROBOT_COILWHEEL_LEFT);
+    TEST_ASSERT_EQ(1u, ROBOT_COILWHEEL_RIGHT);
+    TEST_ASSERT_EQ(0u, ROBOT_COILCHANNEL_A);
+    TEST_ASSERT_EQ(3u, ROBOT_COILCHANNEL_D);
+    TEST_ASSERT_EQ(0u, ROBOT_COILDIAGNOSTICRESULT_DONE);
+    TEST_ASSERT_EQ(1u, ROBOT_COILDIAGNOSTICRESULT_ABORTED);
+    TEST_ASSERT_EQ(0x0207u, ROBOT_MSG_COIL_DIAGNOSTIC);
+    TEST_ASSERT_EQ(0x0308u, ROBOT_MSG_COIL_DIAGNOSTIC_RESULT);
+    TEST_ASSERT_EQ(8u, ROBOT_PAYLOAD_LEN_COIL_DIAGNOSTIC);
+    TEST_ASSERT_EQ(5u, ROBOT_PAYLOAD_LEN_COIL_DIAGNOSTIC_RESULT);
+    TEST_ASSERT_EQ(8u, robot_protocol_payload_length(ROBOT_MSG_COIL_DIAGNOSTIC));
+    TEST_ASSERT_EQ(5u,
+                   robot_protocol_payload_length(ROBOT_MSG_COIL_DIAGNOSTIC_RESULT));
+    return 0;
+}
+
 static int test_resource_layouts(void) {
     TEST_ASSERT_EQ(0u, ROBOT_RESOURCESTATE_BOOT_SCAN);
     TEST_ASSERT_EQ(9u, ROBOT_RESOURCESTATE_FAILED);
@@ -47,6 +64,9 @@ static int test_controller_session_policy(void) {
     TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_REJECT_BAD_STATE,
                    controller_session_route_policy(
                        false, ROBOT_MSG_GET_RESOURCE_STATUS));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_REJECT_BAD_STATE,
+                   controller_session_route_policy(
+                       false, ROBOT_MSG_COIL_DIAGNOSTIC));
 
     TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
                    controller_session_route_policy(false, ROBOT_MSG_NOOP));
@@ -66,6 +86,9 @@ static int test_controller_session_policy(void) {
     TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
                    controller_session_route_policy(
                        true, ROBOT_MSG_RESOURCE_BEGIN));
+    TEST_ASSERT_EQ(CONTROLLER_SESSION_ROUTE_ALLOW,
+                   controller_session_route_policy(
+                       true, ROBOT_MSG_COIL_DIAGNOSTIC));
     return 0;
 }
 
@@ -142,7 +165,7 @@ static int test_encode_resource_chunk_matches_golden(void) {
     payload[20] = 3u;
     payload[21] = 4u;
     TEST_ASSERT_EQ(ROBOT_SLOT_OK,
-                   robot_spi_slot_encode(ROBOT_MSG_RESOURCE_CHUNK, 22u, 1u, payload,
+                   robot_spi_slot_encode(ROBOT_MSG_RESOURCE_CHUNK, 24u, 1u, payload,
                                          sizeof(payload), output, sizeof(output)));
     TEST_ASSERT(memcmp(output, ROBOT_GOLDEN_RESOURCE_CHUNK, sizeof(output)) == 0);
     return 0;
@@ -169,6 +192,7 @@ static int test_rejects_corruption(void) {
 int main(void) {
     TEST_ASSERT_EQ(0, test_crc());
     TEST_ASSERT_EQ(0, test_clear_estop_layout());
+    TEST_ASSERT_EQ(0, test_coil_diagnostic_layouts());
     TEST_ASSERT_EQ(0, test_resource_layouts());
     TEST_ASSERT_EQ(0, test_controller_session_policy());
     TEST_ASSERT_EQ(0, test_decode_golden());
