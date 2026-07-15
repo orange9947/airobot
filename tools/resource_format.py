@@ -388,12 +388,12 @@ def parse_package(package):
     frame_table_length = frame_count * FRAME_STRUCT.size
     _check_region(clip_table_offset, clip_table_length, total_size, "clip table")
     _check_region(frame_table_offset, frame_table_length, total_size, "frame table")
-    if clip_table_offset < header_size:
-        raise ResourceFormatError("clip table overlaps the header")
-    if frame_table_offset < clip_table_offset + clip_table_length:
-        raise ResourceFormatError("frame table overlaps the clip table")
-    if data_offset < frame_table_offset + frame_table_length or data_offset > total_size:
-        raise ResourceFormatError("frame data overlaps the frame table")
+    if clip_table_offset != header_size:
+        raise ResourceFormatError("clip table must immediately follow the header")
+    if frame_table_offset != clip_table_offset + clip_table_length:
+        raise ResourceFormatError("frame table must immediately follow the clip table")
+    if data_offset != frame_table_offset + frame_table_length or data_offset > total_size:
+        raise ResourceFormatError("frame data must immediately follow the frame table")
     if _package_crc32(package) != package_crc32:
         raise ResourceFormatError("package CRC32 mismatch")
 

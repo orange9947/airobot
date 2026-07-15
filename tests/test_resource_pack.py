@@ -156,8 +156,41 @@ class ResourcePackageTests(unittest.TestCase):
         clip_table_offset = struct.unpack_from("<I", package, 16)[0]
         struct.pack_into("<I", package, 20, clip_table_offset)
         package = _recalculate_package_crc(package)
-        with self.assertRaisesRegex(resource_format.ResourceFormatError, "overlaps"):
+        with self.assertRaisesRegex(resource_format.ResourceFormatError, "immediately"):
             resource_format.parse_package(package)
+
+    def test_parser_rejects_gaps_between_metadata_regions(self):
+        original = resource_format.build_package(self.sources)
+        cases = tuple(struct.unpack_from("<I", original, offset)[0]
+                      for offset in (16, 20, 24))
+        for insert_offset in cases:
+            with self.subTest(insert_offset=insert_offset):
+                package = bytearray(original)
+                package[insert_offset:insert_offset] = b"\xa5"
+                struct.pack_into("<I", package, 28, len(package))
+                for offset_field in (16, 20, 24):
+                    old_offset = struct.unpack_from("<I", package, offset_field)[0]
+                    if old_offset >= insert_offset:
+                        struct.pack_into("<I", package, offset_field, old_offset + 1)
+                frame_table_offset = struct.unpack_from("<I", package, 20)[0]
+                for frame_index in range(3):
+                    data_offset_field = (
+                        frame_table_offset
+                        + frame_index * resource_format.FRAME_STRUCT.size
+                        + 4
+                    )
+                    old_offset = struct.unpack_from(
+                        "<I", package, data_offset_field
+                    )[0]
+                    if old_offset >= insert_offset:
+                        struct.pack_into(
+                            "<I", package, data_offset_field, old_offset + 1
+                        )
+                package = _recalculate_package_crc(package)
+                with self.assertRaisesRegex(
+                    resource_format.ResourceFormatError, "immediately"
+                ):
+                    resource_format.parse_package(package)
 
     def test_parser_rejects_gap_between_frame_data(self):
         package = bytearray(resource_format.build_package(self.sources))
