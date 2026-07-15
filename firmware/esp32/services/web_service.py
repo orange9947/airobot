@@ -220,11 +220,14 @@ class WebService:
             header_bytes += len(line)
             if header_bytes > MAX_HEADER_BYTES or len(headers) >= MAX_HEADER_COUNT:
                 raise ApiError(431, "HTTP headers are too large")
-            try:
-                name, value = line.decode("ascii").split(":", 1)
-            except (UnicodeError, ValueError):
+            header_line = line.rstrip(b"\r\n")
+            raw_name, separator, raw_value = header_line.partition(b":")
+            if not separator:
                 raise ApiError(400, "invalid HTTP header")
-            name = name.strip().lower()
+            try:
+                name = raw_name.strip().decode("ascii").lower()
+            except UnicodeError:
+                raise ApiError(400, "invalid HTTP header")
             if (
                 not name
                 or any(
@@ -238,11 +241,13 @@ class WebService:
                 or name in headers
             ):
                 raise ApiError(400, "invalid HTTP header")
-            value = value.strip()
-            if any(ord(character) < 0x20 and character != "\t"
-                   for character in value):
+            raw_value = raw_value.strip(b" \t")
+            if any(
+                (byte < 0x20 and byte != 0x09) or byte == 0x7F
+                for byte in raw_value
+            ):
                 raise ApiError(400, "invalid HTTP header")
-            headers[name] = value
+            headers[name] = raw_value.decode("latin-1")
         if "transfer-encoding" in headers:
             raise ApiError(400, "transfer encoding is not supported")
         length_text = headers.get("content-length", "0")

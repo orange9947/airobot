@@ -606,6 +606,28 @@ class WebServiceTests(unittest.TestCase):
 
     def test_request_parser_bounds_headers_and_content_length(self):
         async def scenario():
+            mobile_request = (
+                b"GET /api/v1/bootstrap HTTP/1.1\r\n"
+                b"Host: robot\r\n"
+                b"X-Mobile-Model: phone-\xe9\r\n\r\n"
+            )
+            method, path, headers, body = await self.web._read_request(
+                FakeReader(mobile_request)
+            )
+            self.assertEqual((method, path, body), ("GET", "/api/v1/bootstrap", b""))
+            self.assertEqual(headers["x-mobile-model"], "phone-\xe9")
+
+            malformed_headers = (
+                b"GET / HTTP/1.1\r\nX-\xff: value\r\n\r\n",
+                b"GET / HTTP/1.1\r\nX-Test: value\x00hidden\r\n\r\n",
+                b"GET / HTTP/1.1\r\nX-Test: one\r\nX-Test: two\r\n\r\n",
+            )
+            for request in malformed_headers:
+                with self.subTest(request=request):
+                    with self.assertRaises(ApiError) as context:
+                        await self.web._read_request(FakeReader(request))
+                    self.assertEqual(context.exception.status, 400)
+
             oversized = (
                 b"GET / HTTP/1.1\r\nX-Fill: "
                 + b"a" * 1100
