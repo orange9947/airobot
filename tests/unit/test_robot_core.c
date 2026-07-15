@@ -13,6 +13,8 @@ typedef struct {
     uint8_t left;
     uint8_t right;
     uint32_t calls;
+    uint32_t left_nonzero_calls;
+    uint32_t right_nonzero_calls;
 } output_capture_t;
 
 static void capture_output(uint8_t left, uint8_t right, void *context) {
@@ -20,6 +22,12 @@ static void capture_output(uint8_t left, uint8_t right, void *context) {
     capture->left = left;
     capture->right = right;
     capture->calls++;
+    if (left != 0u) {
+        capture->left_nonzero_calls++;
+    }
+    if (right != 0u) {
+        capture->right_nonzero_calls++;
+    }
 }
 
 static int test_state_and_safety(void) {
@@ -72,6 +80,30 @@ static int test_motion(void) {
     TEST_ASSERT_EQ(20u, motion.left_done);
     TEST_ASSERT_EQ(10u, motion.right_done);
     TEST_ASSERT(output.calls > 0u);
+    TEST_ASSERT_EQ(0u, output.left);
+    TEST_ASSERT_EQ(0u, output.right);
+
+    output = (output_capture_t){0};
+    motion_service_init(&motion, capture_output, &output);
+    TEST_ASSERT(motion_service_start(&motion, 43u, 12, 0, 400u, 600u, 1000u, 0u));
+    for (now = 0u; now < 1000u && motion.active; ++now) {
+        motion_service_tick_1ms(&motion, now);
+    }
+    TEST_ASSERT_EQ(MOTION_RESULT_DONE, motion.result);
+    TEST_ASSERT(output.left_nonzero_calls > 0u);
+    TEST_ASSERT_EQ(0u, output.right_nonzero_calls);
+    TEST_ASSERT_EQ(0u, output.left);
+    TEST_ASSERT_EQ(0u, output.right);
+
+    output = (output_capture_t){0};
+    motion_service_init(&motion, capture_output, &output);
+    TEST_ASSERT(motion_service_start(&motion, 44u, 0, -12, 400u, 600u, 1000u, 0u));
+    for (now = 0u; now < 1000u && motion.active; ++now) {
+        motion_service_tick_1ms(&motion, now);
+    }
+    TEST_ASSERT_EQ(MOTION_RESULT_DONE, motion.result);
+    TEST_ASSERT_EQ(0u, output.left_nonzero_calls);
+    TEST_ASSERT(output.right_nonzero_calls > 0u);
     TEST_ASSERT_EQ(0u, output.left);
     TEST_ASSERT_EQ(0u, output.right);
 

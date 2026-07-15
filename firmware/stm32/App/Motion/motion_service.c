@@ -86,6 +86,8 @@ void motion_service_tick_1ms(motion_service_t *motion, uint32_t now_ms) {
     uint32_t remaining;
     uint32_t left_abs;
     uint32_t right_abs;
+    uint8_t left_pattern;
+    uint8_t right_pattern;
 
     if (motion == NULL || !motion->active) {
         return;
@@ -130,9 +132,10 @@ void motion_service_tick_1ms(motion_service_t *motion, uint32_t now_ms) {
         motion->right_done++;
         step_phase(&motion->right_phase, motion->right_target);
     }
+    left_pattern = left_abs == 0u ? 0u : motion_halfstep_pattern(motion->left_phase);
+    right_pattern = right_abs == 0u ? 0u : motion_halfstep_pattern(motion->right_phase);
     if (motion->apply != NULL) {
-        motion->apply(motion_halfstep_pattern(motion->left_phase),
-                      motion_halfstep_pattern(motion->right_phase), motion->apply_context);
+        motion->apply(left_pattern, right_pattern, motion->apply_context);
     }
     if (motion->left_done >= left_abs && motion->right_done >= right_abs) {
         motion_service_abort(motion, MOTION_RESULT_DONE);
