@@ -53,13 +53,13 @@ class AsyncJsonClient:
             await reader.readline()
         return bytes(body)
 
-    async def post_json(self, url, payload, headers=None, timeout_s=60):
-        coroutine = self._post_json(url, payload, headers or {})
+    async def post_json(self, url, payload, headers=None, timeout_s=60, response_parser=None):
+        coroutine = self._post_json(url, payload, headers or {}, response_parser)
         if hasattr(asyncio, "wait_for"):
             return await asyncio.wait_for(coroutine, timeout_s)
         return await coroutine
 
-    async def _post_json(self, url, payload, headers):
+    async def _post_json(self, url, payload, headers, response_parser=None):
         scheme, host, port, path = parse_url(url)
         reader, writer = await asyncio.open_connection(host, port, ssl=(scheme == "https"))
         try:
@@ -106,7 +106,18 @@ class AsyncJsonClient:
         text = body.decode("utf-8", "replace")
         if status < 200 or status >= 300:
             raise HttpClientError("HTTP {}".format(status), status, text[:512])
+        return self._decode_body(text, status, response_headers, response_parser)
+
+    @staticmethod
+    def _decode_body(text, status, response_headers, response_parser=None):
+        if response_parser is not None:
+            try:
+                return response_parser(text, response_headers)
+            except HttpClientError:
+                raise
+            except Exception:
+                raise HttpClientError("invalid response payload", status, text[:512])
         try:
             return json.loads(text) if text else {}
-        except ValueError as exc:
-            raise HttpClientError("invalid JSON response", status, text[:512]) from exc
+        except ValueError:
+            raise HttpClientError("invalid JSON response", status, text[:512])
